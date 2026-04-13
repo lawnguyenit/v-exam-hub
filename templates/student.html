@@ -4,96 +4,112 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ExamHub - Dashboard sinh viên</title>
-  <link rel="stylesheet" href="/static/css/common.css">
-  <link rel="stylesheet" href="/static/css/student.css">
+  <link rel="stylesheet" href="/static/css/common.css?v=5">
+  <link rel="stylesheet" href="/static/css/student.css?v=5">
 </head>
 <body>
-  <header class="app-header">
+  <header class="student-topbar">
     <a class="brand" href="/" aria-label="ExamHub">
       <span class="brand-mark">E</span>
       <span>ExamHub</span>
     </a>
-    <a class="ghost-btn" href="/">Đổi tư cách</a>
+
+    <nav class="student-nav" aria-label="Điều hướng sinh viên">
+      <button class="nav-tab active" type="button" data-view="overview">Tổng quan</button>
+      <button class="nav-tab" type="button" data-view="planned">Lịch dự kiến</button>
+      <button class="nav-tab" type="button" data-view="history">Lịch sử</button>
+      <button class="nav-tab" type="button" data-view="profile">Hồ sơ</button>
+    </nav>
+
+    <div class="account-chip">
+      <span class="avatar" id="studentAvatar">SV</span>
+      <div>
+        <strong id="studentName">Sinh viên</strong>
+        <small id="studentAccount">Tài khoản: UI-DEMO</small>
+      </div>
+    </div>
   </header>
 
   <main class="student-dashboard">
     <section class="dashboard-hero" aria-label="Tổng quan sinh viên">
       <div>
         <p class="eyebrow">Dashboard sinh viên / học sinh</p>
-        <h1>Ca thi đang mở</h1>
-        <p class="lead">Theo dõi ca thi, vào bài kiểm tra và xem kết quả gần nhất từ tài khoản được trường cấp.</p>
+        <h1>Theo dõi bài kiểm tra của bạn</h1>
+        <p class="lead">Vào bài đang mở, xem lịch dự kiến, kiểm tra lịch sử điểm và chỉnh thông tin cơ bản từ tài khoản được trường cấp.</p>
       </div>
-      <div class="student-id">Mã truy cập: UI-DEMO</div>
+      <a class="ghost-btn" href="/" id="logoutLink">Đổi tư cách</a>
     </section>
 
-    <section class="dashboard-grid">
-      <article class="exam-panel">
-        <div class="panel-head">
-          <div>
-            <p class="eyebrow">Đề thi thử CNTT</p>
-            <h2>Lập trình cơ sở với Go</h2>
-          </div>
-          <div class="timer" aria-live="polite">
-            <span>Còn lại</span>
-            <strong id="countdown">38:42</strong>
-          </div>
-        </div>
+    <section class="summary-strip" aria-label="Tóm tắt nhanh">
+      <article><span>Bài có thể làm</span><strong id="availableCount">0</strong></article>
+      <article><span>Lịch dự kiến</span><strong id="plannedCount">0</strong></article>
+      <article><span>Điểm gần nhất</span><strong id="latestScore">--</strong></article>
+      <article><span>Tiến trình đang lưu</span><strong id="savedProgress">0/0</strong></article>
+    </section>
 
-        <div class="question-box" aria-live="polite">
-          <p class="question-meta" id="questionMeta">Câu 1 / 12</p>
-          <h3 id="questionTitle">Goroutine được dùng để làm gì trong Go?</h3>
-          <div class="answers" id="answers">
-            <label><input type="radio" name="answer"> Chạy tác vụ đồng thời với chi phí nhẹ</label>
-            <label><input type="radio" name="answer"> Biên dịch mã nguồn thành CSS</label>
-            <label><input type="radio" name="answer"> Tạo cơ sở dữ liệu quan hệ</label>
-            <label><input type="radio" name="answer"> Đóng gói template HTML</label>
-          </div>
+    <section class="view-panel active" data-view-panel="overview">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Tổng quan</p>
+          <h2>Việc cần làm hôm nay</h2>
         </div>
+      </div>
 
-        <div class="question-nav" aria-label="Danh sách câu hỏi">
-          <button class="question-pill active" type="button">1</button>
-          <button class="question-pill" type="button">2</button>
-          <button class="question-pill done" type="button">3</button>
-          <button class="question-pill" type="button">4</button>
-          <button class="question-pill warn" type="button">5</button>
-          <button class="question-pill" type="button">6</button>
-          <button class="question-pill" type="button">7</button>
-          <button class="question-pill" type="button">8</button>
-          <button class="question-pill" type="button">9</button>
-          <button class="question-pill" type="button">10</button>
-          <button class="question-pill" type="button">11</button>
-          <button class="question-pill" type="button">12</button>
-        </div>
-
-        <div class="exam-actions">
-          <button class="ghost-btn" type="button" id="prevQuestion">Câu trước</button>
-          <button class="primary-btn" type="button" id="nextQuestion">Lưu và tiếp tục</button>
-        </div>
-      </article>
-
-      <aside class="student-side">
-        <article class="status-panel">
-          <p class="eyebrow">Trạng thái</p>
-          <h2>Kết nối ổn định</h2>
-          <p>Tự động lưu đáp án mỗi 12 giây, cảnh báo khi rời màn hình hoặc mất kết nối.</p>
+      <div class="dashboard-grid">
+        <div class="exam-list" id="availableExamList" aria-label="Bài kiểm tra có thể làm"></div>
+        <article class="profile-card">
+          <p class="eyebrow">Hồ sơ nhanh</p>
+          <div class="profile-line"><span>Họ và tên</span><strong id="quickName">Sinh viên demo</strong></div>
+          <div class="profile-line"><span>Lớp</span><strong id="quickClass">CNTT K48</strong></div>
+          <div class="profile-line"><span>Mã sinh viên</span><strong id="quickCode">UI-DEMO</strong></div>
         </article>
+      </div>
+    </section>
 
-        <article class="status-panel">
-          <p class="eyebrow">Kết quả gần nhất</p>
-          <div class="metric-strip">
-            <div><span>Điểm</span><strong>7.8</strong></div>
-            <div><span>Hoàn thành</span><strong>92%</strong></div>
-          </div>
-        </article>
+    <section class="view-panel" data-view-panel="planned">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Lịch dự kiến</p>
+          <h2>Bài đã được giáo viên lên lịch</h2>
+        </div>
+      </div>
+      <div class="schedule-list" id="plannedExamList"></div>
+    </section>
 
-        <article class="ad-slot" aria-label="Vị trí quảng cáo mẫu">
-          <span>Học bổng công nghệ</span>
-          <strong>1 banner tĩnh sau khi nộp bài</strong>
+    <section class="view-panel" data-view-panel="history">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Lịch sử bài thi</p>
+          <h2>Xem lại kết quả và chi tiết</h2>
+        </div>
+      </div>
+      <div class="history-table" id="historyTable" role="table" aria-label="Lịch sử bài thi"></div>
+    </section>
+
+    <section class="view-panel" data-view-panel="profile">
+      <div class="section-head">
+        <div>
+          <p class="eyebrow">Hồ sơ cá nhân</p>
+          <h2>Thông tin tài khoản</h2>
+        </div>
+      </div>
+
+      <div class="profile-layout">
+        <article class="profile-photo">
+          <span class="avatar large" id="profileAvatar">SV</span>
+          <button class="ghost-btn" type="button">Đổi ảnh đại diện</button>
         </article>
-      </aside>
+        <article class="profile-card">
+          <div class="profile-line"><span>Họ và tên</span><strong id="profileName">Sinh viên demo</strong></div>
+          <div class="profile-line"><span>Tài khoản</span><strong id="profileAccount">UI-DEMO</strong></div>
+          <div class="profile-line"><span>Lớp</span><strong id="profileClass">CNTT K48</strong></div>
+          <div class="profile-line"><span>Email trường</span><strong id="profileEmail">student@school.edu.vn</strong></div>
+          <div class="profile-line"><span>Trạng thái</span><strong id="profileStatus">Được phép dự thi</strong></div>
+        </article>
+      </div>
     </section>
   </main>
 
-  <script src="/static/js/student.js"></script>
+  <script src="/static/js/student.js?v=5"></script>
 </body>
 </html>

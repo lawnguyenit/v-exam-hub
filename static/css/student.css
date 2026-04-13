@@ -1,3 +1,73 @@
+.student-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(247, 250, 247, 0.96);
+  padding: 18px 28px;
+}
+
+.student-nav {
+  display: flex;
+  min-width: 0;
+  gap: 8px;
+  overflow-x: auto;
+}
+
+.nav-tab {
+  min-height: 40px;
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  padding: 8px 12px;
+  font-weight: 800;
+}
+
+.nav-tab.active,
+.nav-tab:hover {
+  border-color: var(--green);
+  background: var(--soft);
+  color: var(--green-dark);
+}
+
+.account-chip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.account-chip small {
+  display: block;
+  color: var(--muted);
+}
+
+.avatar {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border-radius: 8px;
+  background: var(--ink);
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.avatar.large {
+  width: 96px;
+  height: 96px;
+  font-size: 1.8rem;
+}
+
 .student-dashboard {
   display: grid;
   gap: 24px;
@@ -6,11 +76,18 @@
   padding: 28px;
 }
 
-.dashboard-hero {
+.dashboard-hero,
+.section-head,
+.panel-head,
+.exam-actions {
   display: flex;
-  align-items: end;
+  align-items: center;
   justify-content: space-between;
-  gap: 22px;
+  gap: 18px;
+}
+
+.dashboard-hero {
+  align-items: end;
 }
 
 .dashboard-hero h1 {
@@ -18,43 +95,164 @@
   font-size: 3.4rem;
 }
 
-.student-id {
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--muted);
-  padding: 9px 14px;
-  font-size: 0.9rem;
-  font-weight: 700;
-  white-space: nowrap;
+.summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
 }
 
-.dashboard-grid {
+.summary-strip article,
+.exam-card,
+.profile-card,
+.profile-photo,
+.schedule-list article,
+.detail-panel,
+.exam-panel,
+.status-panel {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 20px;
+}
+
+.summary-strip article {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+  gap: 8px;
+}
+
+.summary-strip span,
+.profile-line span,
+.schedule-list span,
+.schedule-list small,
+.metric-strip span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.summary-strip strong {
+  font-size: 2rem;
+}
+
+.view-panel {
+  display: none;
+  gap: 18px;
+}
+
+.view-panel.active {
+  display: grid;
+}
+
+.dashboard-grid,
+.exam-workspace {
+  display: grid;
+  grid-template-columns: minmax(0, 1.4fr) minmax(300px, 0.8fr);
   gap: 20px;
   align-items: start;
 }
 
-.exam-panel,
-.status-panel,
-.ad-slot {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 22px;
+.exam-workspace {
+  display: none;
 }
 
-.panel-head,
-.exam-actions {
+.exam-workspace.active {
+  display: grid;
+}
+
+.exam-list,
+.schedule-list,
+.student-side,
+.status-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.exam-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18px;
+}
+
+.exam-card h3,
+.profile-card h3,
+.detail-panel h3 {
+  margin-top: 6px;
+}
+
+.exam-card p,
+.status-panel p,
+.detail-panel p {
+  margin: 8px 0 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.featured {
+  min-height: 220px;
+}
+
+.profile-card,
+.profile-photo {
+  display: grid;
   gap: 14px;
 }
 
-.panel-head h2 {
-  margin-top: 6px;
+.profile-photo {
+  justify-items: start;
+}
+
+.profile-line {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.profile-line:last-child {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+
+.profile-layout {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  gap: 20px;
+}
+
+.schedule-list article {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.4fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+}
+
+.history-table {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 140px 90px 110px auto;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line);
+  padding: 14px;
+}
+
+.history-row:last-child {
+  border-bottom: 0;
+}
+
+.history-row.header {
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 800;
 }
 
 .timer {
@@ -67,8 +265,7 @@
   text-align: right;
 }
 
-.timer span,
-.metric-strip span {
+.timer span {
   color: var(--muted);
   font-size: 0.82rem;
   font-weight: 700;
@@ -146,26 +343,15 @@
   color: #185f72;
 }
 
-.question-pill.warn {
-  border-color: var(--yellow);
-  background: #fff6d5;
+.question-pill:disabled,
+.answers input:disabled,
+.exam-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
 }
 
 .exam-actions {
   margin-top: 22px;
-}
-
-.student-side,
-.status-panel,
-.ad-slot {
-  display: grid;
-  gap: 16px;
-}
-
-.status-panel p {
-  margin: 0;
-  color: var(--muted);
-  line-height: 1.6;
 }
 
 .metric-strip {
@@ -186,31 +372,45 @@
   font-size: 1.8rem;
 }
 
-.ad-slot {
-  border-style: dashed;
-  border-color: var(--green);
-  background: #f3fbf5;
-}
-
-.ad-slot span {
-  color: var(--muted);
-  font-weight: 700;
-}
-
 @media (max-width: 1100px) {
-  .dashboard-grid {
+  .student-topbar {
+    grid-template-columns: 1fr;
+  }
+
+  .dashboard-grid,
+  .exam-workspace,
+  .profile-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .history-row {
+    grid-template-columns: 1fr;
+  }
+
+  .history-row.header {
+    display: none;
+  }
+
+  .schedule-list article {
     grid-template-columns: 1fr;
   }
 }
 
 @media (max-width: 720px) {
+  .student-topbar,
   .student-dashboard {
     padding: 18px;
   }
 
   .dashboard-hero,
+  .section-head,
   .panel-head,
-  .exam-actions {
+  .exam-actions,
+  .exam-card {
     align-items: stretch;
     flex-direction: column;
   }
@@ -219,8 +419,9 @@
     font-size: 2.35rem;
   }
 
-  .student-id {
-    width: fit-content;
+  .summary-strip,
+  .metric-strip {
+    grid-template-columns: 1fr;
   }
 
   .question-box h3 {
@@ -229,10 +430,6 @@
 
   .question-nav {
     grid-template-columns: repeat(6, minmax(44px, 1fr));
-  }
-
-  .metric-strip {
-    grid-template-columns: 1fr;
   }
 }
 

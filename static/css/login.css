@@ -1,5 +1,11 @@
-.login-page {
-  min-height: 100vh;
+html,
+body.login-page {
+  min-height: 100%;
+}
+
+body.login-page {
+  background: #f7faf7;
+  overflow-x: hidden;
 }
 
 .login-shell {
@@ -11,12 +17,13 @@
 
 .login-box {
   display: grid;
-  width: min(560px, 100%);
-  gap: 24px;
+  width: min(520px, 100%);
+  gap: 22px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
   padding: 28px;
+  box-shadow: 0 18px 50px rgba(23, 33, 27, 0.08);
 }
 
 .login-copy {
@@ -25,7 +32,7 @@
 }
 
 .login-copy h1 {
-  font-size: 2.4rem;
+  font-size: 2.25rem;
 }
 
 .login-copy p {
@@ -41,12 +48,16 @@
 
 .login-bar {
   display: grid;
-  min-height: 82px;
+  width: 100%;
+  min-height: 76px;
   gap: 6px;
   border: 1px solid var(--line);
+  border-left-width: 6px;
   border-radius: 8px;
   background: #ffffff;
-  padding: 16px;
+  color: var(--ink);
+  padding: 15px 16px;
+  text-align: left;
   text-decoration: none;
 }
 
@@ -64,15 +75,81 @@
 }
 
 .login-bar strong {
-  font-size: 1.2rem;
+  font-size: 1.15rem;
 }
 
 .login-bar.teacher {
-  border-left: 6px solid var(--coral);
+  border-left-color: var(--coral);
 }
 
 .login-bar.student {
-  border-left: 6px solid var(--green);
+  border-left-color: var(--green);
+}
+
+.credential-form {
+  display: grid;
+  gap: 12px;
+  border-top: 1px solid var(--line);
+  padding-top: 20px;
+}
+
+.credential-form.standalone {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.form-box {
+  width: min(500px, 100%);
+}
+
+.credential-form h2 {
+  font-size: 1.35rem;
+}
+
+.credential-form h1 {
+  font-size: 2rem;
+}
+
+.form-head {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.form-head p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.credential-form label {
+  font-weight: 800;
+}
+
+.credential-form input {
+  min-height: 48px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 14px;
+}
+
+.credential-form input:focus {
+  border-color: var(--green);
+  outline: none;
+}
+
+.credential-form .primary-btn {
+  width: 100%;
+}
+
+.form-message {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
 }
 
 .login-note {
@@ -84,9 +161,23 @@
   line-height: 1.6;
 }
 
-@media (max-width: 520px) {
+.back-link {
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.back-link:hover,
+.back-link:focus-visible {
+  color: var(--green-dark);
+  outline: none;
+}
+
+@media (max-width: 560px) {
   .login-shell {
     place-items: stretch;
+    padding: 16px;
   }
 
   .login-box {
@@ -95,6 +186,6 @@
   }
 
   .login-copy h1 {
-    font-size: 2rem;
+    font-size: 1.9rem;
   }
 }
