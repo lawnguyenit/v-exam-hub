@@ -1,14 +1,37 @@
 # ExamHub
 
-Giao diện đầu tiên cho website kiểm tra trực tuyến dùng Go làm server.
+Website kiểm tra trực tuyến dùng React cho frontend và Go cho backend API.
 
-## Chạy bằng Go
+## Chạy bản production local
+
+```powershell
+cd frontend
+npm install
+npm run build
+cd ..
+go run .
+```
+
+Mở `http://localhost:8080`.
+
+Go sẽ serve file build trong `frontend/dist` và giữ các API `/api/...`.
+
+## Chạy khi phát triển frontend
+
+Chạy Go API:
 
 ```powershell
 go run .
 ```
 
-Mở `http://localhost:8080`.
+Chạy Vite dev server:
+
+```powershell
+cd frontend
+npm run dev
+```
+
+Mở URL Vite in ra terminal. Vite proxy `/api` sang `http://localhost:8080`.
 
 ## Cấu trúc trang
 
@@ -21,16 +44,7 @@ Mở `http://localhost:8080`.
 - `/teacher`: dashboard mẫu cho giáo viên, đang để placeholder để làm sau.
 - `/teacher/create`: trang tạo bài kiểm tra mới, có luồng upload file và AI format ở mức UI mock.
 
-Mỗi trang có file CSS và JS riêng:
-
-- `static/css/login.css` và `static/js/login.js`
-- `static/css/student.css` và `static/js/student.js`
-- `static/css/exam.css` và `static/js/exam.js`
-- `static/css/review.css` và `static/js/review.js`
-- `static/css/teacher.css` và `static/js/teacher.js`
-- `static/css/teacher_create.css` và `static/js/teacher_create.js`
-
-`static/css/common.css` chứa phần giao diện dùng chung.
+Frontend chính nằm trong `frontend/src`. Các trang cũ trong `templates/` đã được thay bằng React routes.
 
 ## Dữ liệu
 
@@ -42,7 +56,7 @@ Hiện tại dữ liệu sinh viên được trả qua mock API trong Go:
 - `/api/teacher/dashboard`
 - `/api/teacher/exams/{id}`
 
-Mock data đang nằm trong `internal/studentdata` và `internal/teacherdata`. Khi thêm database, thay phần đọc dữ liệu ở các module này bằng repository/service đọc từ DB, còn template và JS chỉ cần tiếp tục gọi API.
+Mock data đang nằm trong `internal/studentdata` và `internal/teacherdata`. Khi thêm database, thay phần đọc dữ liệu ở các module này bằng repository/service đọc từ DB, còn React frontend tiếp tục gọi API.
 
 ## Quy tắc đăng nhập hiện tại
 

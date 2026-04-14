@@ -2,9 +2,12 @@ package main
 
 import (
 	"encoding/json"
-	"html/template"
 	"log"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
 
 	"website-exam/internal/studentdata"
 	"website-exam/internal/teacherdata"
@@ -12,54 +15,7 @@ import (
 
 func main() {
 	mux := http.NewServeMux()
-	pages := map[string]*template.Template{
-		"roleSelect":    template.Must(template.ParseFiles("templates/index.html")),
-		"studentLogin":  template.Must(template.ParseFiles("templates/student_login.html")),
-		"teacherLogin":  template.Must(template.ParseFiles("templates/teacher_login.html")),
-		"student":       template.Must(template.ParseFiles("templates/student.html")),
-		"studentExam":   template.Must(template.ParseFiles("templates/student_exam.html")),
-		"studentReview": template.Must(template.ParseFiles("templates/student_review.html")),
-		"teacher":       template.Must(template.ParseFiles("templates/teacher.html")),
-		"teacherCreate": template.Must(template.ParseFiles("templates/teacher_create.html")),
-	}
 
-	staticFiles := http.StripPrefix("/static/", http.FileServer(http.Dir("static")))
-	mux.Handle("/static/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		staticFiles.ServeHTTP(w, r)
-	}))
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
-
-		renderPage(w, pages["roleSelect"])
-	})
-	mux.HandleFunc("/login", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/", http.StatusSeeOther)
-	})
-	mux.HandleFunc("/login/student", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["studentLogin"])
-	})
-	mux.HandleFunc("/login/teacher", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["teacherLogin"])
-	})
-	mux.HandleFunc("/student", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["student"])
-	})
-	mux.HandleFunc("/student/exam", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["studentExam"])
-	})
-	mux.HandleFunc("/student/review", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["studentReview"])
-	})
-	mux.HandleFunc("/teacher", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["teacher"])
-	})
-	mux.HandleFunc("/teacher/create", func(w http.ResponseWriter, r *http.Request) {
-		renderPage(w, pages["teacherCreate"])
-	})
 	mux.HandleFunc("/api/student/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, studentdata.DashboardFor(r.URL.Query().Get("account")))
 	})
@@ -94,16 +50,39 @@ func main() {
 		writeJSON(w, exam)
 	})
 
+	mux.HandleFunc("/", serveFrontend("frontend/dist"))
+
 	log.Println("Server running at http://localhost:8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func renderPage(w http.ResponseWriter, tmpl *template.Template) {
-	if err := tmpl.Execute(w, nil); err != nil {
-		http.Error(w, "Không thể tải giao diện", http.StatusInternalServerError)
-		log.Println(err)
+func serveFrontend(distDir string) http.HandlerFunc {
+	fileServer := http.FileServer(http.Dir(distDir))
+	indexPath := filepath.Join(distDir, "index.html")
+
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+
+		cleanPath := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if cleanPath != "." {
+			filePath := filepath.Join(distDir, cleanPath)
+			if info, err := os.Stat(filePath); err == nil && !info.IsDir() {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+			if path.Ext(cleanPath) != "" {
+				http.NotFound(w, r)
+				return
+			}
+		}
+
+		w.Header().Set("Cache-Control", "no-store")
+		http.ServeFile(w, r, indexPath)
 	}
 }
 
