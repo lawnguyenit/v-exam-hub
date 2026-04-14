@@ -19,6 +19,7 @@ Mở `http://localhost:8080`.
 - `/student/exam`: trang làm bài độc lập.
 - `/student/review`: trang xem lại bài thi độc lập.
 - `/teacher`: dashboard mẫu cho giáo viên, đang để placeholder để làm sau.
+- `/teacher/create`: trang tạo bài kiểm tra mới, có luồng upload file và AI format ở mức UI mock.
 
 Mỗi trang có file CSS và JS riêng:
 
@@ -27,6 +28,7 @@ Mỗi trang có file CSS và JS riêng:
 - `static/css/exam.css` và `static/js/exam.js`
 - `static/css/review.css` và `static/js/review.js`
 - `static/css/teacher.css` và `static/js/teacher.js`
+- `static/css/teacher_create.css` và `static/js/teacher_create.js`
 
 `static/css/common.css` chứa phần giao diện dùng chung.
 
@@ -37,8 +39,10 @@ Hiện tại dữ liệu sinh viên được trả qua mock API trong Go:
 - `/api/student/dashboard`
 - `/api/student/exams/{id}`
 - `/api/student/reviews/{id}`
+- `/api/teacher/dashboard`
+- `/api/teacher/exams/{id}`
 
-Mock data đang nằm trong `internal/studentdata`. Khi thêm database, thay phần đọc dữ liệu ở module này bằng repository/service đọc từ DB, còn template và JS chỉ cần tiếp tục gọi API.
+Mock data đang nằm trong `internal/studentdata` và `internal/teacherdata`. Khi thêm database, thay phần đọc dữ liệu ở các module này bằng repository/service đọc từ DB, còn template và JS chỉ cần tiếp tục gọi API.
 
 ## Quy tắc đăng nhập hiện tại
 

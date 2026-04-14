@@ -1,0 +1,15 @@
+{
+    "sqltools.connections": [
+        {
+            "ssh": "Disabled",
+            "previewLimit": 50,
+            "server": "localhost",
+            "port": 5432,
+            "driver": "PostgreSQL",
+            "name": "v-exam-hub-local-db",
+            "database": "v_exam_hub",
+            "username": "admin",
+            "password": "123123"
+        }
+    ]
+}

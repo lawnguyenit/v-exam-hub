@@ -1,0 +1,17 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:16-alpine # Bản alpine cho nhẹ máy
+    container_name: v_exam_hub_db
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: 123123 # Thay bằng pass của ông
+      POSTGRES_DB: v_exam_hub
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Lưu dữ liệu thật vào máy laptop
+
+volumes:
+  postgres_data:

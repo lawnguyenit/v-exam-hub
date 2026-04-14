@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"website-exam/internal/studentdata"
+	"website-exam/internal/teacherdata"
 )
 
 func main() {
@@ -19,6 +20,7 @@ func main() {
 		"studentExam":   template.Must(template.ParseFiles("templates/student_exam.html")),
 		"studentReview": template.Must(template.ParseFiles("templates/student_review.html")),
 		"teacher":       template.Must(template.ParseFiles("templates/teacher.html")),
+		"teacherCreate": template.Must(template.ParseFiles("templates/teacher_create.html")),
 	}
 
 	staticFiles := http.StripPrefix("/static/", http.FileServer(http.Dir("static")))
@@ -55,6 +57,9 @@ func main() {
 	mux.HandleFunc("/teacher", func(w http.ResponseWriter, r *http.Request) {
 		renderPage(w, pages["teacher"])
 	})
+	mux.HandleFunc("/teacher/create", func(w http.ResponseWriter, r *http.Request) {
+		renderPage(w, pages["teacherCreate"])
+	})
 	mux.HandleFunc("/api/student/dashboard", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, studentdata.DashboardFor(r.URL.Query().Get("account")))
 	})
@@ -75,6 +80,18 @@ func main() {
 			return
 		}
 		writeJSON(w, review)
+	})
+	mux.HandleFunc("/api/teacher/dashboard", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, teacherdata.DashboardFor(r.URL.Query().Get("account")))
+	})
+	mux.HandleFunc("/api/teacher/exams/", func(w http.ResponseWriter, r *http.Request) {
+		id := r.URL.Path[len("/api/teacher/exams/"):]
+		exam, ok := teacherdata.ExamDetailByID(id)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		writeJSON(w, exam)
 	})
 
 	log.Println("Server running at http://localhost:8080")
