@@ -22,6 +22,7 @@ type ExamSummary struct {
 	ID          string  `json:"id"`
 	Title       string  `json:"title"`
 	Status      string  `json:"status"`
+	ExamType    string  `json:"examType"`
 	TargetClass string  `json:"targetClass"`
 	StartTime   string  `json:"startTime"`
 	Average     float64 `json:"average"`
@@ -33,6 +34,7 @@ type ExamDetail struct {
 	ID          string                     `json:"id"`
 	Title       string                     `json:"title"`
 	Status      string                     `json:"status"`
+	ExamType    string                     `json:"examType"`
 	TargetClass string                     `json:"targetClass"`
 	StartTime   string                     `json:"startTime"`
 	Metrics     []Metric                   `json:"metrics"`
@@ -95,6 +97,7 @@ func ExamDetailByID(id string) (ExamDetail, bool) {
 			ID:          "go-basics-demo",
 			Title:       "Lập trình cơ sở với Go",
 			Status:      "Đang mở",
+			ExamType:    "Chính thức",
 			TargetClass: "CNTT K48",
 			StartTime:   "Hôm nay 08:00",
 			Metrics: []Metric{
@@ -145,6 +148,7 @@ func ExamDetailByID(id string) (ExamDetail, bool) {
 			ID:          "database-schedule",
 			Title:       "Cơ sở dữ liệu",
 			Status:      "Lịch dự kiến",
+			ExamType:    "Chính thức",
 			TargetClass: "CNTT K48",
 			StartTime:   "15/04 - 08:00",
 			Metrics: []Metric{
@@ -157,14 +161,72 @@ func ExamDetailByID(id string) (ExamDetail, bool) {
 				"top_students": {
 					Title:   "Chưa có dữ liệu làm bài",
 					Columns: []string{"Mục", "Giá trị"},
-					Rows:    [][]string{{"Ghi chú", "Bảng thống kê sẽ xuất hiện khi sinh viên bắt đầu làm bài."}},
+					Rows:    [][]string{},
 				},
 				"score_distribution": {
 					Title:   "Chưa có phân bố điểm",
 					Columns: []string{"Mục", "Giá trị"},
-					Rows:    [][]string{{"Trạng thái", "Đang chờ đến giờ mở bài."}},
+					Rows:    [][]string{},
+				},
+				"question_difficulty": {
+					Title:   "Chưa có câu dễ sai",
+					Columns: []string{"Mục", "Giá trị"},
+					Rows:    [][]string{},
+				},
+				"live_status": {
+					Title:   "Trạng thái phòng thi",
+					Columns: []string{"Sinh viên", "Tiến trình", "Cảnh báo"},
+					Rows:    [][]string{},
 				},
 			},
+		}, true
+	case "network-practice":
+		return ExamDetail{
+			ID:          "network-practice",
+			Title:       "Kiến thức mạng máy tính",
+			Status:      "Đang mở",
+			ExamType:    "Thi thử",
+			TargetClass: "CNTT K49",
+			StartTime:   "Đã mở",
+			Metrics: []Metric{
+				{Label: "Đã nộp", Value: "31/44"},
+				{Label: "Điểm cao nhất", Value: "9.1"},
+				{Label: "Điểm trung bình", Value: "6.9"},
+				{Label: "Thời gian TB", Value: "28 phút"},
+			},
+			Tables: map[string]StatisticsTable{
+				"top_students": {
+					Title:   "Sinh viên làm tốt nhất",
+					Columns: []string{"Sinh viên", "Điểm", "Thời gian", "Trạng thái"},
+					Rows: [][]string{
+						{"Ngô Khánh Linh", "9.1", "24 phút", "Đã nộp"},
+						{"Bùi Khánh Vy", "8.7", "29 phút", "Đã nộp"},
+					},
+				},
+				"score_distribution": {
+					Title:   "Phân bố điểm",
+					Columns: []string{"Khoảng điểm", "Số sinh viên", "Tỷ lệ"},
+					Rows: [][]string{
+						{"8 - 10", "9", "29.0%"},
+						{"6.5 - 7.9", "15", "48.4%"},
+						{"Dưới 6.5", "7", "22.6%"},
+					},
+				},
+				"question_difficulty": {
+					Title:   "Câu dễ sai nhất",
+					Columns: []string{"Câu", "Tỷ lệ sai", "Ghi chú"},
+					Rows: [][]string{
+						{"#3", "45%", "Subnet mask"},
+						{"#9", "39%", "TCP handshake"},
+					},
+				},
+				"live_status": {
+					Title:   "Trạng thái phòng thi",
+					Columns: []string{"Sinh viên", "Tiến trình", "Cảnh báo"},
+					Rows:    [][]string{},
+				},
+			},
+			Students: practiceStudents(),
 		}, true
 	default:
 		return ExamDetail{}, false
@@ -173,9 +235,9 @@ func ExamDetailByID(id string) (ExamDetail, bool) {
 
 func examSummaries() []ExamSummary {
 	return []ExamSummary{
-		{ID: "go-basics-demo", Title: "Lập trình cơ sở với Go", Status: "Đang mở", TargetClass: "CNTT K48", StartTime: "Hôm nay 08:00", Average: 7.4, Submitted: 41, Total: 52},
-		{ID: "database-schedule", Title: "Cơ sở dữ liệu", Status: "Lịch dự kiến", TargetClass: "CNTT K48", StartTime: "15/04 - 08:00", Average: 0, Submitted: 0, Total: 52},
-		{ID: "network-practice", Title: "Kiến thức mạng máy tính", Status: "Thi thử", TargetClass: "CNTT K49", StartTime: "Đã mở", Average: 6.9, Submitted: 31, Total: 44},
+		{ID: "go-basics-demo", Title: "Lập trình cơ sở với Go", Status: "Đang mở", ExamType: "Chính thức", TargetClass: "CNTT K48", StartTime: "Hôm nay 08:00", Average: 7.4, Submitted: 41, Total: 52},
+		{ID: "database-schedule", Title: "Cơ sở dữ liệu", Status: "Lịch dự kiến", ExamType: "Chính thức", TargetClass: "CNTT K48", StartTime: "15/04 - 08:00", Average: 0, Submitted: 0, Total: 52},
+		{ID: "network-practice", Title: "Kiến thức mạng máy tính", Status: "Đang mở", ExamType: "Thi thử", TargetClass: "CNTT K49", StartTime: "Đã mở", Average: 6.9, Submitted: 31, Total: 44},
 	}
 }
 
@@ -191,5 +253,13 @@ func liveStudents() []StudentAttemptDetail {
 		{Name: "Mai Phương Anh", Progress: "10/12", Warning: "Ổn định", Score: "Đang làm", Duration: "28 phút", WrongItems: []WrongItem{{Question: "interface{} biểu thị gì?", Selected: "Chỉ string", Correct: "Có thể giữ nhiều kiểu", Note: "Cần ôn lại interface."}}},
 		{Name: "Hoàng Minh Quân", Progress: "3/12", Warning: "Rời tab 2 lần", Score: "Đang làm", Duration: "12 phút", WrongItems: []WrongItem{{Question: "HTTP 404 là gì?", Selected: "Thành công", Correct: "Không tìm thấy", Note: "Cần xem lại status code."}}},
 		{Name: "Bùi Khánh Vy", Progress: "11/12", Warning: "Ổn định", Score: "Đang làm", Duration: "33 phút", WrongItems: []WrongItem{{Question: "slice khác array ở điểm nào?", Selected: "Không có length", Correct: "Slice là view động trên array", Note: "Cần xem lại slice."}}},
+	}
+}
+
+func practiceStudents() []StudentAttemptDetail {
+	return []StudentAttemptDetail{
+		{Name: "Ngô Khánh Linh", Progress: "10/10", Warning: "Đã nộp", Score: "9.1", Duration: "24 phút", WrongItems: []WrongItem{{Question: "Subnet mask /26 có bao nhiêu địa chỉ?", Selected: "32", Correct: "64", Note: "Nhầm số bit host còn lại."}}},
+		{Name: "Bùi Khánh Vy", Progress: "10/10", Warning: "Đã nộp", Score: "8.7", Duration: "29 phút", WrongItems: []WrongItem{{Question: "TCP handshake gồm mấy bước?", Selected: "2", Correct: "3", Note: "Thiếu bước ACK cuối."}}},
+		{Name: "Vũ Hoàng Long", Progress: "6/10", Warning: "Ổn định", Score: "Đang làm", Duration: "18 phút", WrongItems: []WrongItem{{Question: "DNS dùng để làm gì?", Selected: "Mã hóa gói tin", Correct: "Phân giải tên miền", Note: "Nhầm DNS với tầng bảo mật."}}},
 	}
 }

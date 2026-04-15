@@ -75,6 +75,7 @@ export type TeacherExamSummary = {
   id: string;
   title: string;
   status: string;
+  examType: string;
   targetClass: string;
   startTime: string;
   average: number;
@@ -115,6 +116,57 @@ export type WrongItem = {
   note: string;
 };
 
+export type ImportFileInfo = {
+  name: string;
+  size: number;
+  kind: string;
+};
+
+export type ImportExtractInfo = {
+  status: string;
+  text: string;
+  needsOcr: boolean;
+  needsConversion: boolean;
+  warning: string;
+  pageEstimate: number;
+  imageCount: number;
+  documentTitle: string;
+  headingCandidates: string[];
+};
+
+export type ImportParsedOption = {
+  label: string;
+  content: string;
+};
+
+export type ImportParsedQuestion = {
+  importItemId?: number;
+  sourceOrder: number;
+  content: string;
+  options: ImportParsedOption[];
+  correctLabel?: string;
+  confidence: number;
+  status: "pass" | "review" | "fail";
+  warnings: string[];
+};
+
+export type ImportParseSummary = {
+  total: number;
+  passed: number;
+  review: number;
+  failed: number;
+  averageConfidence: number;
+};
+
+export type ImportParseResult = {
+  importBatchId: number;
+  file: ImportFileInfo;
+  extract: ImportExtractInfo;
+  questions: ImportParsedQuestion[];
+  summary: ImportParseSummary;
+  message: string;
+};
+
 async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
@@ -141,4 +193,30 @@ export function getTeacherDashboard(account: string) {
 
 export function getTeacherExam(examID: string) {
   return getJSON<TeacherExamDetail>(`/api/teacher/exams/${encodeURIComponent(examID)}`);
+}
+
+export async function parseTeacherImport(file: File) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const response = await fetch("/api/teacher/import/parse", {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<ImportParseResult>;
+}
+
+export async function saveTeacherImportItem(importBatchId: number, question: ImportParsedQuestion) {
+  const response = await fetch("/api/teacher/import/items/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ importBatchId, question }),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ ok: boolean }>;
 }

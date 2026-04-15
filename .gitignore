@@ -28,6 +28,7 @@ bin/
 # Local database/session scratch files
 *.session.sql
 *-local-db.session.sql
+data/
 
 # OS/editor noise
 .DS_Store

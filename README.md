@@ -46,6 +46,15 @@ Mở URL Vite in ra terminal. Vite proxy `/api` sang `http://localhost:8080`.
 
 Frontend chính nằm trong `frontend/src`. Các trang cũ trong `templates/` đã được thay bằng React routes.
 
+## Cấu trúc frontend
+
+- `frontend/src/App.tsx`: chỉ giữ router cấp cao.
+- `frontend/src/pages`: các màn theo domain như `auth`, `student`, `teacher`.
+- `frontend/src/features`: phần nghiệp vụ có state riêng như làm bài, xem lại, thống kê giáo viên.
+- `frontend/src/shared`: component dùng chung như brand, page shell.
+- `frontend/src/lib`: helper dùng chung như auth guard và format.
+- `frontend/src/styles`: CSS tách theo nhóm màn, `styles.css` chỉ import các file này.
+
 ## Dữ liệu
 
 Hiện tại dữ liệu sinh viên được trả qua mock API trong Go:

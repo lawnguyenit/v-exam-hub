@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -8,12 +9,23 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+	"website-exam/internal/importdata"
 	"website-exam/internal/studentdata"
 	"website-exam/internal/teacherdata"
 )
 
 func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	db, err := connectDB(ctx)
+	if err != nil {
+		log.Fatalf("database connection failed: %v", err)
+	}
+	defer db.Close()
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/api/student/dashboard", func(w http.ResponseWriter, r *http.Request) {
@@ -49,12 +61,86 @@ func main() {
 		}
 		writeJSON(w, exam)
 	})
+	mux.HandleFunc("/api/teacher/import/parse", handleTeacherImportParse(db))
+	mux.HandleFunc("/api/teacher/import/items/save", handleTeacherImportItemSave(db))
 
 	mux.HandleFunc("/", serveFrontend("frontend/dist"))
 
 	log.Println("Server running at http://localhost:8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
 		log.Fatal(err)
+	}
+}
+
+func handleTeacherImportItemSave(db *pgxpool.Pool) http.HandlerFunc {
+	type requestBody struct {
+		ImportBatchID int64                     `json:"importBatchId"`
+		Question      importdata.ParsedQuestion `json:"question"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload requestBody
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Không đọc được dữ liệu câu hỏi", http.StatusBadRequest)
+			return
+		}
+		if err := importdata.UpdateImportItem(r.Context(), db, payload.ImportBatchID, payload.Question); err != nil {
+			http.Error(w, "Không lưu được câu hỏi: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	}
+}
+
+func connectDB(ctx context.Context) (*pgxpool.Pool, error) {
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		databaseURL = "postgres://admin:123123@localhost:5432/v_exam_hub?sslmode=disable"
+	}
+	db, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.Ping(ctx); err != nil {
+		db.Close()
+		return nil, err
+	}
+	log.Println("Database connected")
+	return db, nil
+}
+
+func handleTeacherImportParse(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		r.Body = http.MaxBytesReader(w, r.Body, 64<<20)
+		if err := r.ParseMultipartForm(64 << 20); err != nil {
+			http.Error(w, "Không đọc được file upload", http.StatusBadRequest)
+			return
+		}
+
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, "Thiếu file đề thi", http.StatusBadRequest)
+			return
+		}
+
+		result, err := importdata.ParseUpload(file, header)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := importdata.SaveImport(r.Context(), db, &result); err != nil {
+			http.Error(w, "Không lưu được import vào database: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(w, result)
 	}
 }
 

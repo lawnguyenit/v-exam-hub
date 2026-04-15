@@ -1,0 +1,770 @@
+Project web_exam_platform {
+  database_type: 'PostgreSQL'
+  Note: 'Schema for exam/test platform with question bank, exam versions, runtime attempts, and audit/event history.'
+}
+
+Enum account_status_enum {
+  active
+  locked
+  disabled
+}
+
+Enum profile_status_enum {
+  active
+  inactive
+}
+
+Enum class_status_enum {
+  active
+  archived
+}
+
+Enum class_member_status_enum {
+  active
+  removed
+  suspended
+}
+
+Enum teacher_class_permission_enum {
+  owner
+  editor
+  viewer
+}
+
+Enum question_type_enum {
+  single_choice
+  multiple_choice
+  text
+}
+
+Enum question_status_enum {
+  draft
+  active
+  archived
+}
+
+Enum question_visibility_enum {
+  private
+  school_shared
+  public_readonly
+}
+
+Enum attachment_kind_enum {
+  image
+  audio
+  video
+  document
+  other
+}
+
+Enum attachment_target_enum {
+  question_body
+  option
+  explanation
+  unknown
+}
+
+Enum import_source_type_enum {
+  doc
+  docx
+  pdf
+  txt
+  pasted_text
+  xlsx
+  csv
+  other
+}
+
+Enum import_parse_status_enum {
+  pending
+  parsed
+  needs_ocr
+  needs_conversion
+  failed
+  reviewed
+}
+
+Enum import_review_status_enum {
+  pending
+  approved
+  rejected
+}
+
+Enum ai_provider_enum {
+  openai
+  gemini
+  local
+  other
+}
+
+Enum ai_run_status_enum {
+  pending
+  running
+  succeeded
+  failed
+}
+
+Enum exam_mode_enum {
+  practice
+  official
+}
+
+Enum exam_status_enum {
+  draft
+  scheduled
+  open
+  closed
+  archived
+}
+
+Enum attempt_status_enum {
+  in_progress
+  submitted
+  expired
+  cancelled
+}
+
+Enum grading_status_enum {
+  auto_graded
+  manual_pending
+  finalized
+}
+
+Enum submit_source_enum {
+  manual
+  auto_timeout
+  admin_force_submit
+}
+
+Enum attempt_event_type_enum {
+  login
+  start
+  answer_saved
+  tab_hidden
+  tab_visible
+  reconnect
+  submit
+  timeout
+  heartbeat
+}
+
+Enum ad_placement_enum {
+  dashboard_side
+  after_submit
+}
+
+Enum generic_status_enum {
+  active
+  inactive
+  archived
+}
+
+TableGroup "Identity & access" {
+  roles
+  users
+  user_roles
+  student_profiles
+  teacher_profiles
+}
+
+Table roles {
+  id smallint [pk, increment]
+  code varchar(50) [not null, unique]
+  name varchar(100) [not null]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table users {
+  id bigint [pk, increment]
+  username varchar(100) [not null, unique]
+  password_hash text [not null]
+  account_status account_status_enum [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table user_roles {
+  user_id bigint [not null, ref: > users.id]
+  role_id smallint [not null, ref: > roles.id]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (user_id, role_id) [pk]
+    role_id
+  }
+}
+
+Table student_profiles {
+  user_id bigint [pk, ref: > users.id]
+  student_code varchar(50) [not null, unique]
+  full_name varchar(255) [not null]
+  avatar_url text
+  email varchar(255)
+  phone varchar(30)
+  profile_status profile_status_enum [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table teacher_profiles {
+  user_id bigint [pk, ref: > users.id]
+  teacher_code varchar(50) [not null, unique]
+  full_name varchar(255) [not null]
+  avatar_url text
+  email varchar(255)
+  phone varchar(30)
+  department varchar(255)
+  profile_status profile_status_enum [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+TableGroup "Classroom" {
+  classes
+  class_members
+  teacher_class_assignments
+}
+
+Table classes {
+  id bigint [pk, increment]
+  class_code varchar(50) [not null, unique]
+  class_name varchar(255) [not null]
+  school_year varchar(50)
+  major varchar(255)
+  homeroom_teacher_user_id bigint [ref: > users.id]
+  created_by_user_id bigint [ref: > users.id]
+  class_status class_status_enum [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table class_members {
+  id bigint [pk, increment]
+  class_id bigint [not null, ref: > classes.id]
+  student_user_id bigint [not null, ref: > users.id]
+  member_status class_member_status_enum [not null, default: 'active']
+  joined_at timestamptz [not null, default: `now()`]
+  left_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (class_id, student_user_id) [unique]
+    student_user_id
+  }
+}
+
+Table teacher_class_assignments {
+  id bigint [pk, increment]
+  class_id bigint [not null, ref: > classes.id]
+  teacher_user_id bigint [not null, ref: > users.id]
+  permission teacher_class_permission_enum [not null, default: 'editor']
+  assignment_status generic_status_enum [not null, default: 'active']
+  assigned_by_user_id bigint [ref: > users.id]
+  assigned_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (class_id, teacher_user_id) [unique]
+    teacher_user_id
+  }
+}
+
+TableGroup "Import / staging" {
+  import_batches
+  ai_model_runs
+  import_items
+  import_item_assets
+}
+
+Table import_batches {
+  id bigint [pk, increment]
+  uploaded_by_user_id bigint [ref: > users.id]
+  source_name varchar(255)
+  original_filename varchar(255)
+  source_type import_source_type_enum [not null, default: 'other']
+  source_file_url text
+  file_size_bytes bigint
+  file_sha256 char(64)
+  content_fingerprint char(64)
+  raw_content text
+  parser_model varchar(100)
+  parse_status import_parse_status_enum [not null, default: 'pending']
+  document_title text
+  image_count int [not null, default: 0]
+  asset_summary_json jsonb [not null, default: '{}']
+  parse_error text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    file_sha256
+    content_fingerprint
+  }
+}
+
+Table ai_model_runs {
+  id bigint [pk, increment]
+  import_batch_id bigint [not null, ref: > import_batches.id]
+  provider ai_provider_enum [not null, default: 'other']
+  model varchar(100) [not null]
+  purpose varchar(100) [not null]
+  prompt_version varchar(100)
+  input_tokens int [not null, default: 0]
+  output_tokens int [not null, default: 0]
+  request_count int [not null, default: 1]
+  estimated_cost_usd decimal(12,6) [not null, default: 0]
+  run_status ai_run_status_enum [not null, default: 'pending']
+  error_message text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    import_batch_id
+    (provider, model, created_at)
+  }
+}
+
+Table import_items {
+  id bigint [pk, increment]
+  batch_id bigint [not null, ref: > import_batches.id]
+  item_order int [not null]
+  source_order int
+  raw_question_text text [not null]
+  parsed_question_json jsonb
+  normalized_question_json jsonb
+  ai_confidence decimal(5,4)
+  approved_question_id bigint [ref: > question_bank.id]
+  review_status import_review_status_enum [not null, default: 'pending']
+  review_note text
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (batch_id, item_order) [unique]
+    (batch_id, review_status)
+  }
+}
+
+Table import_item_assets {
+  id bigint [pk, increment]
+  batch_id bigint [not null, ref: > import_batches.id]
+  import_item_id bigint [ref: > import_items.id]
+  target attachment_target_enum [not null, default: 'unknown']
+  option_label varchar(10)
+  file_url text [not null]
+  mime_type varchar(100)
+  page_number int
+  display_order int [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (batch_id, import_item_id, display_order)
+  }
+}
+
+TableGroup "Question bank" {
+  subjects
+  topics
+  question_tags
+  question_bank
+  question_bank_options
+  question_bank_tags
+  question_attachments
+  question_option_attachments
+}
+
+Table subjects {
+  id bigint [pk, increment]
+  subject_code varchar(50) [not null, unique]
+  subject_name varchar(255) [not null]
+  description text
+  subject_status generic_status_enum [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+Table topics {
+  id bigint [pk, increment]
+  subject_id bigint [not null, ref: > subjects.id]
+  parent_topic_id bigint [ref: > topics.id]
+  topic_code varchar(50)
+  topic_name varchar(255) [not null]
+  description text
+  topic_status generic_status_enum [not null, default: 'active']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (subject_id, topic_code) [unique]
+    subject_id
+    parent_topic_id
+  }
+}
+
+Table question_tags {
+  id bigint [pk, increment]
+  tag_name varchar(100) [not null, unique]
+  created_at timestamptz [not null, default: `now()`]
+}
+
+Table question_bank {
+  id bigint [pk, increment]
+  created_by_user_id bigint [ref: > users.id]
+  import_item_id bigint [ref: > import_items.id]
+  subject_id bigint [ref: > subjects.id]
+  topic_id bigint [ref: > topics.id]
+  question_type question_type_enum [not null]
+  content text [not null]
+  explanation text
+  default_points decimal(10,2) [not null, default: 1]
+  difficulty smallint
+  visibility question_visibility_enum [not null, default: 'private']
+  question_status question_status_enum [not null, default: 'draft']
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    question_status
+    created_by_user_id
+    subject_id
+    topic_id
+    (visibility, question_status)
+  }
+}
+
+Table question_bank_options {
+  id bigint [pk, increment]
+  question_id bigint [not null, ref: > question_bank.id]
+  option_order int [not null]
+  content text [not null]
+  is_correct bool [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (question_id, option_order) [unique]
+    question_id
+  }
+}
+
+Table question_bank_tags {
+  question_id bigint [not null, ref: > question_bank.id]
+  tag_id bigint [not null, ref: > question_tags.id]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (question_id, tag_id) [pk]
+    tag_id
+  }
+}
+
+Table question_attachments {
+  id bigint [pk, increment]
+  question_id bigint [not null, ref: > question_bank.id]
+  attachment_kind attachment_kind_enum [not null, default: 'other']
+  target attachment_target_enum [not null, default: 'question_body']
+  file_url text [not null]
+  alt_text text
+  display_order int [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (question_id, display_order)
+  }
+}
+
+Table question_option_attachments {
+  id bigint [pk, increment]
+  question_option_id bigint [not null, ref: > question_bank_options.id]
+  attachment_kind attachment_kind_enum [not null, default: 'image']
+  file_url text [not null]
+  alt_text text
+  display_order int [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (question_option_id, display_order)
+  }
+}
+
+TableGroup "Exam config" {
+  exams
+  exam_questions
+  exam_targets
+}
+
+Table exams {
+  id bigint [pk, increment]
+  created_by_user_id bigint [ref: > users.id]
+  title varchar(255) [not null]
+  description text
+  exam_mode exam_mode_enum [not null, default: 'practice']
+  duration_seconds int [not null]
+  total_points decimal(10,2) [not null, default: 0]
+  exam_status exam_status_enum [not null, default: 'draft']
+  max_attempts_per_student int [not null, default: 1]
+  shuffle_questions bool [not null, default: false]
+  shuffle_options bool [not null, default: false]
+  show_result_immediately bool [not null, default: false]
+  allow_review bool [not null, default: false]
+  access_code varchar(100)
+  start_time timestamptz
+  end_time timestamptz
+  published_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_status, start_time, end_time)
+    created_by_user_id
+  }
+}
+
+Table exam_questions {
+  id bigint [pk, increment]
+  exam_id bigint [not null, ref: > exams.id]
+  question_id bigint [not null, ref: > question_bank.id]
+  question_order int [not null]
+  points_override decimal(10,2)
+  is_required bool [not null, default: true]
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_id, question_order) [unique]
+    (exam_id, question_id) [unique]
+    exam_id
+  }
+}
+
+Table exam_targets {
+  id bigint [pk, increment]
+  exam_id bigint [not null, ref: > exams.id]
+  class_id bigint [not null, ref: > classes.id]
+  assigned_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_id, class_id) [unique]
+    class_id
+  }
+}
+
+TableGroup "Exam version history" {
+  exam_versions
+  exam_version_questions
+  exam_version_question_options
+}
+
+Table exam_versions {
+  id bigint [pk, increment]
+  exam_id bigint [not null, ref: > exams.id]
+  version_no int [not null]
+  title_snapshot varchar(255) [not null]
+  description_snapshot text
+  exam_mode_snapshot exam_mode_enum [not null]
+  duration_seconds_snapshot int [not null]
+  total_points_snapshot decimal(10,2) [not null]
+  exam_status_snapshot exam_status_enum [not null]
+  shuffle_questions_snapshot bool [not null, default: false]
+  shuffle_options_snapshot bool [not null, default: false]
+  show_result_immediately_snapshot bool [not null, default: false]
+  allow_review_snapshot bool [not null, default: false]
+  start_time_snapshot timestamptz
+  end_time_snapshot timestamptz
+  published_by_user_id bigint [ref: > users.id]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_id, version_no) [unique]
+    (exam_id, version_no)
+  }
+}
+
+Table exam_version_questions {
+  id bigint [pk, increment]
+  exam_version_id bigint [not null, ref: > exam_versions.id]
+  source_question_id bigint [ref: > question_bank.id]
+  question_order int [not null]
+  question_type_snapshot question_type_enum [not null]
+  content_snapshot text [not null]
+  explanation_snapshot text
+  points_snapshot decimal(10,2) [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_version_id, question_order) [unique]
+    exam_version_id
+  }
+}
+
+Table exam_version_question_options {
+  id bigint [pk, increment]
+  exam_version_question_id bigint [not null, ref: > exam_version_questions.id]
+  option_order int [not null]
+  content_snapshot text [not null]
+  is_correct_snapshot bool [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_version_question_id, option_order) [unique]
+  }
+}
+
+TableGroup "Runtime attempts" {
+  exam_attempts
+  attempt_questions
+  attempt_question_options
+  student_answers
+  student_answer_options
+  attempt_events
+}
+
+Table exam_attempts {
+  id bigint [pk, increment]
+  exam_id bigint [not null, ref: > exams.id]
+  exam_version_id bigint [not null, ref: > exam_versions.id]
+  student_user_id bigint [not null, ref: > users.id]
+  attempt_no int [not null]
+  started_at timestamptz [not null, default: `now()`]
+  end_at timestamptz [not null]
+  submitted_at timestamptz
+  attempt_status attempt_status_enum [not null, default: 'in_progress']
+  duration_seconds_snapshot int [not null]
+  total_points_snapshot decimal(10,2) [not null, default: 0]
+  score_raw decimal(10,2) [not null, default: 0]
+  score_final decimal(10,2) [not null, default: 0]
+  grading_status grading_status_enum [not null, default: 'auto_graded']
+  current_question_order int
+  last_saved_at timestamptz
+  client_last_seen_at timestamptz
+  ip_address inet
+  user_agent text
+  submit_source submit_source_enum
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (exam_id, student_user_id, attempt_no) [unique]
+    student_user_id
+    (attempt_status, end_at)
+  }
+}
+
+Table attempt_questions {
+  id bigint [pk, increment]
+  attempt_id bigint [not null, ref: > exam_attempts.id]
+  exam_version_question_id bigint [ref: > exam_version_questions.id]
+  question_order int [not null]
+  question_type_snapshot question_type_enum [not null]
+  content_snapshot text [not null]
+  explanation_snapshot text
+  points_snapshot decimal(10,2) [not null, default: 0]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (attempt_id, question_order) [unique]
+    attempt_id
+  }
+}
+
+Table attempt_question_options {
+  id bigint [pk, increment]
+  attempt_question_id bigint [not null, ref: > attempt_questions.id]
+  option_order int [not null]
+  content_snapshot text [not null]
+  is_correct_snapshot bool [not null, default: false]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (attempt_question_id, option_order) [unique]
+  }
+}
+
+Table student_answers {
+  id bigint [pk, increment]
+  attempt_question_id bigint [not null, unique, ref: > attempt_questions.id]
+  answer_text text
+  is_correct bool
+  score_awarded decimal(10,2) [not null, default: 0]
+  saved_at timestamptz [not null, default: `now()`]
+  submitted_at timestamptz
+  graded_at timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    saved_at
+  }
+}
+
+Table student_answer_options {
+  id bigint [pk, increment]
+  student_answer_id bigint [not null, ref: > student_answers.id]
+  attempt_question_option_id bigint [not null, ref: > attempt_question_options.id]
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (student_answer_id, attempt_question_option_id) [unique]
+  }
+}
+
+Table attempt_events {
+  id bigint [pk, increment]
+  attempt_id bigint [not null, ref: > exam_attempts.id]
+  event_type attempt_event_type_enum [not null]
+  metadata_json jsonb [not null, default: '{}']
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (attempt_id, created_at)
+  }
+}
+
+TableGroup "Audit & monetization" {
+  audit_logs
+  ads
+  ad_impressions
+}
+
+Table audit_logs {
+  id bigint [pk, increment]
+  actor_user_id bigint [ref: > users.id]
+  action varchar(100) [not null]
+  entity_type varchar(100) [not null]
+  entity_id bigint
+  metadata_json jsonb [not null, default: '{}']
+  created_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (actor_user_id, created_at)
+  }
+}
+
+Table ads {
+  id bigint [pk, increment]
+  title varchar(255) [not null]
+  image_url text
+  target_url text
+  placement ad_placement_enum [not null]
+  ad_status generic_status_enum [not null, default: 'inactive']
+  start_time timestamptz
+  end_time timestamptz
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    (ad_status, placement, start_time, end_time)
+  }
+}
+
+Table ad_impressions {
+  id bigint [pk, increment]
+  ad_id bigint [not null, ref: > ads.id]
+  user_id bigint [ref: > users.id]
+  shown_at timestamptz [not null, default: `now()`]
+
+  Indexes {
+    ad_id
+  }
+}
