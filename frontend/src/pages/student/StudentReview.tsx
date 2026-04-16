@@ -8,8 +8,8 @@ import { PageShell } from "../../shared/PageShell";
 export function StudentReview() {
   const auth = useRequiredAuth("student");
   const [params] = useSearchParams();
-  const reviewID = params.get("id") || "go-intro";
-  const reviewQuery = useQuery({ queryKey: ["review", reviewID], queryFn: () => getReview(reviewID) });
+  const reviewID = params.get("id") || "";
+  const reviewQuery = useQuery({ queryKey: ["review", reviewID], queryFn: () => getReview(reviewID), enabled: Boolean(reviewID) });
 
   if (!auth) return <Navigate to="/" replace />;
 
@@ -19,7 +19,7 @@ export function StudentReview() {
         <section className="review-hero">
           <div>
             <p className="eyebrow">Xem lại bài thi</p>
-            <h1>{reviewQuery.data?.title || (reviewQuery.isError ? "Không thể tải bài xem lại" : "Đang tải bài thi")}</h1>
+            <h1>{!reviewID ? "Thiếu mã bài xem lại" : reviewQuery.data?.title || (reviewQuery.isError ? "Không thể tải bài xem lại" : "Đang tải bài thi")}</h1>
           </div>
           <div className="review-score">
             <span>Điểm</span>

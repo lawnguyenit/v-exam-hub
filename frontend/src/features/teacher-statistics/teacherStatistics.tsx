@@ -14,9 +14,27 @@ export function activeStatisticsTable(exam: TeacherExamDetail | undefined, statM
   return { key, table: exam.tables[key] };
 }
 
+export function teacherTableColumns(key: string, table: StatisticsTable) {
+  if (key === "top_students") return ["Sinh viên", "Mã SV", "Số lần", "Điểm cao nhất", "Trạng thái"];
+  if (key === "live_status") return ["Sinh viên", "Mã SV", "Số lần", "Tiến trình", "Cảnh báo"];
+  return table.columns;
+}
+
 export function buildTeacherRows(exam: TeacherExamDetail | undefined, key: string, table: StatisticsTable) {
+  if (key === "top_students" && exam?.students?.length) {
+    return exam.students
+      .filter((student) => Number.isFinite(scoreValue(student.score)))
+      .sort((left, right) => scoreValue(right.score) - scoreValue(left.score))
+      .map((student, rowIndex) => ({
+        cells: [student.name, student.studentCode, String(student.attemptCount), student.score, student.warning],
+        rowIndex,
+      }));
+  }
   if (key === "live_status") {
-    return (exam?.students || []).map((student, rowIndex) => ({ cells: [student.name, student.progress, student.warning], rowIndex }));
+    return (exam?.students || []).map((student, rowIndex) => ({
+      cells: [student.name, student.studentCode, String(student.attemptCount), student.progress, student.warning],
+      rowIndex,
+    }));
   }
   return table.rows.map((cells, rowIndex) => ({ cells, rowIndex }));
 }
@@ -25,12 +43,14 @@ export function renderTeacherModal(exam: TeacherExamDetail | undefined, key: str
   if (!exam) return <p>Chưa có dữ liệu.</p>;
   if (key === "live_status") return renderStudentAttempt(exam.students?.[rowIndex]);
   if (key === "top_students") {
-    const name = table.rows[rowIndex]?.[0];
-    return renderStudentAttempt(exam.students?.find((student) => student.name === name));
+    const student = (exam.students || [])
+      .filter((candidate) => Number.isFinite(scoreValue(candidate.score)))
+      .sort((left, right) => scoreValue(right.score) - scoreValue(left.score))[rowIndex];
+    return renderStudentAttempt(student);
   }
   if (key === "score_distribution") {
     const row = table.rows[rowIndex];
-    const students = studentsForRow(exam.students || [], rowIndex, table.rows.length);
+    const students = studentsForScoreBucket(exam.students || [], row?.[0] || "");
     return (
       <>
         <p className="eyebrow">Chi tiết nhóm điểm</p>
@@ -42,13 +62,12 @@ export function renderTeacherModal(exam: TeacherExamDetail | undefined, key: str
   }
   if (key === "question_difficulty") {
     const row = table.rows[rowIndex];
-    const students = studentsForRow(exam.students || [], rowIndex, table.rows.length);
     return (
       <>
         <p className="eyebrow">Chi tiết câu hỏi</p>
         <h2>{row[0]} - {row[2]}</h2>
-        <div className="student-detail-meta"><span>Tỷ lệ sai: {row[1]}</span><span>Sinh viên liên quan: {students.length}</span></div>
-        <StudentPreviewList students={students} />
+        <div className="student-detail-meta"><span>Tỷ lệ sai: {row[1]}</span><span>Sinh viên liên quan: chưa đủ dữ liệu</span></div>
+        <p className="empty-note">Danh sách sinh viên sai câu này sẽ lấy từ bảng câu trả lời thật khi luồng làm bài ghi đầy đủ `student_answers`.</p>
       </>
     );
   }
@@ -75,19 +94,40 @@ function renderStudentAttempt(student?: StudentAttemptDetail): ReactNode {
       <p className="eyebrow">Chi tiết sinh viên</p>
       <h2>{student.name}</h2>
       <div className="student-detail-meta">
-        <span>Tiến trình: {student.progress}</span><span>Điểm: {student.score}</span><span>Thời gian: {student.duration}</span><span>Cảnh báo: {student.warning}</span>
+        <span>Mã SV: {student.studentCode}</span><span>Số lần làm: {student.attemptCount}</span><span>Điểm cao nhất: {student.score}</span><span>Trạng thái: {student.warning}</span>
       </div>
       <div className="wrong-list">
-        {student.wrongItems.map((item) => (
-          <div className="wrong-item" key={item.question}>
-            <strong>{item.question}</strong>
-            <span>Đã chọn: {item.selected}</span>
-            <span>Đáp án đúng: {item.correct}</span>
-            <p>{item.note}</p>
+        <h3>Các lần làm và câu sai</h3>
+        {student.attempts.map((attempt) => (
+          <div className="wrong-item" key={attempt.attemptNo}>
+            <strong>Lần {attempt.attemptNo}</strong>
+            <span>Điểm: {attempt.score}</span>
+            <span>Thời gian: {attempt.duration}</span>
+            <span>Trạng thái: {attempt.status}</span>
+            <p>Nộp lúc: {attempt.submittedAt}</p>
+            <AttemptWrongItems items={attempt.wrongItems || []} />
           </div>
         ))}
       </div>
     </>
+  );
+}
+
+function AttemptWrongItems({ items }: { items: StudentAttemptDetail["wrongItems"] }) {
+  if (!items.length) {
+    return <p className="empty-note">Chưa có dữ liệu câu trả lời cho lần này.</p>;
+  }
+  return (
+    <div className="attempt-wrong-list">
+      {items.map((item) => (
+        <div className="attempt-wrong-item" key={`${item.question}-${item.selected}-${item.correct}`}>
+          <strong>{item.question}</strong>
+          <span>Đã chọn: {item.selected}</span>
+          <span>Đáp án đúng: {item.correct}</span>
+          <p>{item.note}</p>
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -98,16 +138,37 @@ function StudentPreviewList({ students }: { students: StudentAttemptDetail[] }) 
       {students.map((student) => (
         <div className="wrong-item" key={student.name}>
           <strong>{student.name}</strong>
-          <span>Điểm: {student.score}</span>
-          <span>Thời gian: {student.duration}</span>
+          <span>Mã SV: {student.studentCode}</span>
+          <span>Số lần làm: {student.attemptCount}</span>
+          <span>Điểm cao nhất: {student.score}</span>
           <span>Cảnh báo: {student.warning}</span>
-          <p>{student.wrongItems[0]?.note || "Chưa có ghi chú sai chi tiết."}</p>
         </div>
       ))}
     </div>
   );
 }
 
-function studentsForRow(students: StudentAttemptDetail[], rowIndex: number, rowCount: number) {
-  return students.filter((_, index) => index % rowCount === rowIndex);
+function studentsForScoreBucket(students: StudentAttemptDetail[], bucket: string) {
+  const normalized = bucket.toLowerCase();
+  return students.filter((student) => {
+    const score = scoreValue(student.score);
+    if (!Number.isFinite(score)) return false;
+    if (normalized.includes("dưới") || normalized.includes("duoi")) {
+      const limit = firstNumber(normalized) ?? 5;
+      return score < limit;
+    }
+    const [min, max] = normalized.match(/\d+(?:[.,]\d+)?/g)?.map((value) => Number(value.replace(",", "."))) || [];
+    if (min === undefined || max === undefined) return false;
+    return score >= min && score <= max;
+  });
+}
+
+function scoreValue(value: string) {
+  const parsed = Number(String(value).replace(",", ".").match(/\d+(?:\.\d+)?/)?.[0]);
+  return Number.isFinite(parsed) ? parsed : Number.NaN;
+}
+
+function firstNumber(value: string) {
+  const parsed = Number(value.match(/\d+(?:[.,]\d+)?/)?.[0]?.replace(",", "."));
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

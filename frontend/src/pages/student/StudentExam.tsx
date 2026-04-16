@@ -8,11 +8,20 @@ import { PageShell } from "../../shared/PageShell";
 export function StudentExam() {
   const auth = useRequiredAuth("student");
   const [params] = useSearchParams();
-  const examID = params.get("id") || "go-basics-demo";
+  const examID = params.get("id") || "";
 
   if (!auth) return <Navigate to="/" replace />;
 
-  const examQuery = useQuery({ queryKey: ["exam", examID], queryFn: () => getExam(examID) });
+  const examQuery = useQuery({ queryKey: ["exam", examID], queryFn: () => getExam(examID), enabled: Boolean(examID) });
+  if (!examID) {
+    return (
+      <PageShell backTo="/student">
+        <main className="exam-page">
+          <article className="exam-panel">Thiếu mã bài thi. Hãy vào bài từ dashboard sinh viên.</article>
+        </main>
+      </PageShell>
+    );
+  }
   return examQuery.data ? <ExamWorkspace auth={auth} exam={examQuery.data} /> : (
     <PageShell backTo="/student">
       <main className="exam-page">

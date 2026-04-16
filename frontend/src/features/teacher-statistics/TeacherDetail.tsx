@@ -1,6 +1,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import type { TeacherExamDetail } from "../../api";
-import { activeStatisticsTable, buildTeacherRows, renderTeacherModal, statLabels } from "./teacherStatistics";
+import { activeStatisticsTable, buildTeacherRows, renderTeacherModal, statLabels, teacherTableColumns } from "./teacherStatistics";
 
 export function TeacherDetail({
   exam,
@@ -15,6 +15,8 @@ export function TeacherDetail({
 }) {
   const active = activeStatisticsTable(exam, statMode);
   const rows = active ? buildTeacherRows(exam, active.key, active.table) : [];
+  const columns = active ? teacherTableColumns(active.key, active.table) : [];
+  const metrics = exam?.metrics.filter((metric) => metric.label !== "Thời gian TB" && metric.label !== "Thời gian trung bình");
   const shouldShowEmptyState = !exam || exam.status === "Lịch dự kiến" || !active || rows.length === 0;
 
   return (
@@ -34,7 +36,7 @@ export function TeacherDetail({
       </div>
       <div className="metric-grid">
         {exam
-          ? exam.metrics.map((metric) => (
+          ? metrics?.map((metric) => (
               <article className="metric-card" key={metric.label}>
                 <span>{metric.label}</span>
                 <strong>{metric.value}</strong>
@@ -52,12 +54,12 @@ export function TeacherDetail({
           <TeacherStatsEmptyState exam={exam} mode={active?.key || statMode} />
         ) : (
           <div className="stats-table">
-            <div className="stats-row header" style={{ "--columns": active.table.columns.length + 1 } as CSSProperties}>
-              {active.table.columns.map((column) => <span key={column}>{column}</span>)}
+            <div className="stats-row header" style={{ "--columns": columns.length + 1 } as CSSProperties}>
+              {columns.map((column) => <span key={column}>{column}</span>)}
               <span>Chi tiết</span>
             </div>
             {rows.map((row) => (
-              <div className="stats-row" style={{ "--columns": active.table.columns.length + 1 } as CSSProperties} key={`${row.rowIndex}-${row.cells.join("-")}`}>
+              <div className="stats-row" style={{ "--columns": columns.length + 1 } as CSSProperties} key={`${row.rowIndex}-${row.cells.join("-")}`}>
                 {row.cells.map((cell, index) => <span key={`${cell}-${index}`}>{cell}</span>)}
                 <button className="table-action" type="button" onClick={() => onOpen(renderTeacherModal(exam, active.key, active.table, row.rowIndex))}>Xem</button>
               </div>
@@ -126,6 +128,6 @@ function defaultMetrics() {
     { label: "Đã nộp", value: "--" },
     { label: "Điểm cao nhất", value: "--" },
     { label: "Điểm trung bình", value: "--" },
-    { label: "Thời gian TB", value: "--" },
+    { label: "Số lượt làm", value: "--" },
   ];
 }

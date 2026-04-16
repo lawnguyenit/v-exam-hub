@@ -1,7 +1,8 @@
 import type { FormEvent } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
-import { Navigate } from "react-router-dom";
-import { parseTeacherImport, saveTeacherImportItem } from "../../api";
+import { Navigate, useNavigate } from "react-router-dom";
+import { approveTeacherImportPassItems, getTeacherClasses, parseTeacherImport, saveTeacherImportItem } from "../../api";
 import { QuestionImportPreview } from "../../features/question-import/QuestionImportPreview";
 import { parseExamText, recheckParsedQuestions } from "../../features/question-import/ruleParser";
 import type { ParsedQuestion, ParseResult } from "../../features/question-import/ruleParser";
@@ -16,15 +17,22 @@ const pipelineSteps = [
   ["Nhận file", "Lưu file gốc và metadata để đối chiếu."],
   ["Tách text", "TXT/CSV đọc trực tiếp. DOC/DOCX/PDF do backend tách text hoặc OCR."],
   ["Tách câu tự động", "Nhận dạng câu hỏi, lựa chọn và đáp án bằng luật mềm."],
-  ["Phân loại lỗi", "Câu đủ dữ liệu sẽ pass. Câu thiếu đáp án, trùng số hoặc dư lựa chọn cần kiểm tra."],
+  ["Phân loại lỗi", "Câu đủ dữ liệu sẽ pass. Câu thiếu đáp án, trùng nội dung hoặc thiếu lựa chọn cần kiểm tra."],
   ["Giáo viên duyệt", "Sửa câu mơ hồ, gắn ảnh, xác nhận đáp án trước khi lưu."],
 ];
 
 type FileKind = "none" | "text" | "needs-ocr" | "needs-conversion" | "unsupported";
 type ImportTab = "source" | "results" | "review";
+type ApprovalSummary = {
+  approved: number;
+  alreadyApproved: number;
+  skipped: number;
+  rejected: number;
+};
 
 export function TeacherCreateExam() {
   const auth = useRequiredAuth("teacher");
+  const navigate = useNavigate();
   const [stage, setStage] = useState<"setup" | "preview">("setup");
   const [activeTab, setActiveTab] = useState<ImportTab>("source");
   const [fileState, setFileState] = useState(emptyFileState);
@@ -38,8 +46,12 @@ export function TeacherCreateExam() {
   const [isTextDirty, setIsTextDirty] = useState(false);
   const [extractNote, setExtractNote] = useState("");
   const [result, setResult] = useState("Chọn file đề thi để bắt đầu.");
+  const [isApproving, setIsApproving] = useState(false);
+  const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | undefined>();
+  const classQuery = useQuery({ queryKey: ["teacher-classes"], queryFn: getTeacherClasses });
   const parseResult = useMemo(() => parseExamText(checkedText), [checkedText]);
   const pipelineStep = getPipelineStep(stage, fileKind, isParsing, checkedText, isTextDirty);
+  const activeResult = reviewResult.questions.length ? reviewResult : parseResult;
 
   if (!auth) return <Navigate to="/" replace />;
 
@@ -121,7 +133,7 @@ export function TeacherCreateExam() {
 
   function rerunLocalCheck() {
     setCheckedText(rawText);
-    setReviewResult(parseExamText(rawText));
+    setReviewResult(mergeImportItemIDs(parseExamText(rawText), activeResult));
     setIsTextDirty(false);
     setActiveTab("results");
   }
@@ -132,18 +144,52 @@ export function TeacherCreateExam() {
   }
 
   async function saveReviewQuestion(index: number, nextQuestion: ParsedQuestion) {
-    const currentResult = reviewResult.questions.length ? reviewResult : parseResult;
-    const nextResult = recheckParsedQuestions(currentResult.questions.map((question, questionIndex) => (
+    const nextResult = recheckParsedQuestions(activeResult.questions.map((question, questionIndex) => (
       questionIndex === index ? nextQuestion : question
     )));
     const savedQuestion = nextResult.questions[index];
     if (!importBatchID || !savedQuestion.importItemId) {
       setResult("Câu này chưa có item trong database. Hãy chạy lại import từ file nếu cần lưu.");
-      return;
+      throw new Error("missing import item id");
     }
     await saveTeacherImportItem(importBatchID, savedQuestion);
     setReviewResult(nextResult);
     setResult(`Đã lưu Câu ${savedQuestion.sourceOrder} vào batch #${importBatchID}.`);
+  }
+
+  async function approvePassQuestions() {
+    const passQuestions = activeResult.questions.filter((question) => question.status === "pass");
+    if (!importBatchID) {
+      setResult("Batch này chưa có trong database, chưa thể lưu vào ngân hàng câu hỏi.");
+      return;
+    }
+    if (passQuestions.length === 0) {
+      setResult("Chưa có câu pass để lưu. Cần sửa ít nhất một câu trước khi tiếp tục.");
+      return;
+    }
+
+    setIsApproving(true);
+    setResult("Đang lưu các câu pass vào ngân hàng câu hỏi...");
+    try {
+      const response = await approveTeacherImportPassItems(importBatchID);
+      setReviewResult(resultFromQuestions(passQuestions));
+      setActiveTab("results");
+      setApprovalSummary({
+        approved: response.approved,
+        alreadyApproved: response.alreadyApproved,
+        skipped: response.skipped,
+        rejected: response.rejected,
+      });
+      setResult(
+        `Đã lưu ${response.approved} câu pass vào ngân hàng câu hỏi. ` +
+        `${response.alreadyApproved ? `${response.alreadyApproved} câu đã lưu trước đó. ` : ""}` +
+        `${response.skipped} câu chưa pass được giữ lại trong batch để sửa sau.`,
+      );
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Không lưu được các câu pass vào ngân hàng câu hỏi.");
+    } finally {
+      setIsApproving(false);
+    }
   }
 
   return (
@@ -172,10 +218,16 @@ export function TeacherCreateExam() {
               </select>
 
               <label htmlFor="targetClass">Lớp áp dụng</label>
-              <select id="targetClass">
-                <option>CNTT K48</option>
-                <option>CNTT K49</option>
-                <option>Mạng máy tính K47</option>
+              <select id="targetClass" required>
+                {classQuery.data && classQuery.data.length > 0 ? (
+                  classQuery.data.map((classItem) => (
+                    <option value={classItem.id} key={classItem.id}>
+                      {classItem.classCode} - {classItem.className}
+                    </option>
+                  ))
+                ) : (
+                  <option value="">{classQuery.isLoading ? "Đang tải lớp..." : "Chưa có lớp trong database"}</option>
+                )}
               </select>
 
               <label htmlFor="startTime">Thời gian mở bài</label>
@@ -274,19 +326,59 @@ export function TeacherCreateExam() {
               )}
 
               {activeTab === "results" && (
-                <QuestionImportPreview result={reviewResult.questions.length ? reviewResult : parseResult} onQuestionSave={saveReviewQuestion} />
+                <QuestionImportPreview result={activeResult} onQuestionSave={saveReviewQuestion} />
               )}
 
               {activeTab === "review" && (
-                <QuestionImportPreview result={reviewResult.questions.length ? reviewResult : parseResult} mode="needs-review" onQuestionSave={saveReviewQuestion} />
+                <QuestionImportPreview result={activeResult} mode="needs-review" onQuestionSave={saveReviewQuestion} />
               )}
+
+              <div className="approval-actions">
+                <div>
+                  <strong>Tiếp tục với câu đã pass</strong>
+                  <span>Câu cần kiểm tra hoặc lỗi sẽ không đi vào ngân hàng câu hỏi ở bước này.</span>
+                </div>
+                <button className="primary-btn" type="button" onClick={approvePassQuestions} disabled={isApproving || activeResult.summary.passed === 0}>
+                  {isApproving ? "Đang lưu..." : `Lưu ${activeResult.summary.passed} câu pass`}
+                </button>
+              </div>
             </div>
 
             <p className="compact-result">{result}</p>
           </section>
         )}
+
+        {approvalSummary && (
+          <ApprovalResultModal
+            summary={approvalSummary}
+            onConfirm={() => navigate("/teacher", { replace: true })}
+          />
+        )}
       </main>
     </PageShell>
+  );
+}
+
+function ApprovalResultModal({ summary, onConfirm }: { summary: ApprovalSummary; onConfirm: () => void }) {
+  return (
+    <div className="approval-modal-backdrop" role="presentation">
+      <section className="approval-modal" role="dialog" aria-modal="true" aria-label="Kết quả lưu câu hỏi">
+        <p className="eyebrow">Đã lưu vào database</p>
+        <h2>Hoàn tất bước duyệt câu pass</h2>
+        <p>
+          Hệ thống đã đưa các câu hợp lệ vào ngân hàng câu hỏi. Những câu chưa pass vẫn được giữ trong batch import để sửa sau.
+        </p>
+        <div className="approval-modal-stats">
+          <span><strong>{summary.approved}</strong>Câu mới đã lưu</span>
+          <span><strong>{summary.alreadyApproved}</strong>Câu đã lưu trước đó</span>
+          <span><strong>{summary.skipped}</strong>Câu giữ lại để sửa</span>
+          <span><strong>{summary.rejected}</strong>Câu lỗi</span>
+        </div>
+        <button className="primary-btn" type="button" onClick={onConfirm}>
+          Về dashboard giáo viên
+        </button>
+      </section>
+    </div>
   );
 }
 
@@ -297,6 +389,25 @@ function getPipelineStep(stage: "setup" | "preview", fileKind: FileKind, isParsi
   if (isTextDirty) return 2;
   if (checkedText.trim()) return 4;
   return 2;
+}
+
+function mergeImportItemIDs(next: ParseResult, previous: ParseResult): ParseResult {
+  const previousByOrder = new Map(previous.questions.map((question) => [question.sourceOrder, question.importItemId]));
+  return resultFromQuestions(next.questions.map((question, index) => ({
+    ...question,
+    importItemId: question.importItemId || previousByOrder.get(question.sourceOrder) || previous.questions[index]?.importItemId,
+  })));
+}
+
+function resultFromQuestions(questions: ParsedQuestion[]): ParseResult {
+  const total = questions.length;
+  const passed = questions.filter((question) => question.status === "pass").length;
+  const review = questions.filter((question) => question.status === "review").length;
+  const failed = questions.filter((question) => question.status === "fail").length;
+  const averageConfidence = total
+    ? Math.round(questions.reduce((sum, question) => sum + question.confidence, 0) / total)
+    : 0;
+  return { questions, summary: { total, passed, review, failed, averageConfidence } };
 }
 
 function PipelinePanel({ fileState, result, activeStep }: { fileState: string; result: string; activeStep: number }) {
@@ -313,7 +424,7 @@ function PipelinePanel({ fileState, result, activeStep }: { fileState: string; r
 
       <div className="pipeline-note">
         <strong>Luật phân loại</strong>
-        <span>Thiếu đáp án đúng không được pass. Câu trùng số, dư lựa chọn, thiếu lựa chọn hoặc có ảnh sẽ được đẩy sang cần kiểm tra.</span>
+        <span>Thiếu đáp án đúng không được pass. Câu trùng nội dung, thiếu lựa chọn hoặc thiếu dữ liệu ảnh sẽ được đẩy sang cần kiểm tra.</span>
       </div>
 
       <div className="pipeline-result">{result}</div>

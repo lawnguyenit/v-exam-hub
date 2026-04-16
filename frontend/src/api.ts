@@ -66,7 +66,10 @@ export type ReviewQuestion = {
 export type TeacherDashboard = {
   profile: {
     displayName: string;
+    teacherCode: string;
     department: string;
+    email: string;
+    phone: string;
   };
   exams: TeacherExamSummary[];
 };
@@ -102,11 +105,23 @@ export type StatisticsTable = {
 
 export type StudentAttemptDetail = {
   name: string;
+  studentCode: string;
   progress: string;
   warning: string;
   score: string;
   duration: string;
+  attemptCount: number;
+  attempts: AttemptDetail[];
   wrongItems: WrongItem[];
+};
+
+export type AttemptDetail = {
+  attemptNo: number;
+  score: string;
+  duration: string;
+  status: string;
+  submittedAt: string;
+  wrongItems?: WrongItem[];
 };
 
 export type WrongItem = {
@@ -114,6 +129,24 @@ export type WrongItem = {
   selected: string;
   correct: string;
   note: string;
+};
+
+export type LoginResult = {
+  username: string;
+  role: "student" | "teacher";
+  displayName: string;
+};
+
+export type AttemptState = {
+  attemptId: number;
+  examId: string;
+  startedAt: number;
+  endAt: number;
+  currentQuestion: number;
+  answers: Record<string, number>;
+  status: "in_progress" | "submitted" | "expired" | "cancelled";
+  score?: string;
+  lastSavedAt: number;
 };
 
 export type ImportFileInfo = {
@@ -167,6 +200,34 @@ export type ImportParseResult = {
   message: string;
 };
 
+export type StudentImportResult = {
+  classCode: string;
+  className: string;
+  created: number;
+  updated: number;
+  addedToClass: number;
+  skipped: number;
+  importedStudents: Array<{
+    username: string;
+    studentCode: string;
+    fullName: string;
+    temporaryPassword: string;
+  }>;
+  generatedPasswords: Array<{
+    username: string;
+    studentCode: string;
+    fullName: string;
+    password: string;
+  }>;
+  errors: string[];
+};
+
+export type TeacherClass = {
+  id: number;
+  classCode: string;
+  className: string;
+};
+
 async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
@@ -195,6 +256,90 @@ export function getTeacherExam(examID: string) {
   return getJSON<TeacherExamDetail>(`/api/teacher/exams/${encodeURIComponent(examID)}`);
 }
 
+export async function updateTeacherProfile(payload: { username: string; displayName: string; department: string; email: string; phone: string }) {
+  const response = await fetch("/api/teacher/profile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<TeacherDashboard["profile"]>;
+}
+
+export async function login(payload: { username: string; password: string; role: "student" | "teacher" }) {
+  const response = await fetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<LoginResult>;
+}
+
+export async function startStudentAttempt(payload: { account: string; examId: string }) {
+  const response = await fetch("/api/student/attempts/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<AttemptState>;
+}
+
+export async function saveStudentAnswer(payload: { attemptId: number; questionIndex: number; answerIndex: number }) {
+  const response = await fetch("/api/student/attempts/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<AttemptState>;
+}
+
+export async function syncStudentAttemptDraft(payload: { attemptId: number; currentQuestion: number; answers: Record<string, number> }) {
+  const response = await fetch("/api/student/attempts/sync", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<AttemptState>;
+}
+
+export async function updateStudentAttemptProgress(payload: { attemptId: number; questionIndex: number }) {
+  const response = await fetch("/api/student/attempts/progress", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<AttemptState>;
+}
+
+export async function submitStudentAttempt(payload: { attemptId: number }) {
+  const response = await fetch("/api/student/attempts/submit", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<AttemptState>;
+}
+
 export async function parseTeacherImport(file: File) {
   const formData = new FormData();
   formData.append("file", file);
@@ -219,4 +364,66 @@ export async function saveTeacherImportItem(importBatchId: number, question: Imp
     throw new Error(await response.text());
   }
   return response.json() as Promise<{ ok: boolean }>;
+}
+
+export async function approveTeacherImportPassItems(importBatchId: number) {
+  const response = await fetch("/api/teacher/import/approve-pass", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ importBatchId }),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{
+    importBatchId: number;
+    approved: number;
+    alreadyApproved: number;
+    skipped: number;
+    rejected: number;
+  }>;
+}
+
+export function getTeacherClasses() {
+  return getJSON<TeacherClass[]>("/api/teacher/classes");
+}
+
+export async function importTeacherClassStudents(payload: { classCode: string; className: string; rows: string }) {
+  const response = await fetch("/api/teacher/classes/import-students", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<StudentImportResult>;
+}
+
+export async function updateTeacherStudentPassword(payload: { username: string; studentCode: string; password: string }) {
+  const response = await fetch("/api/teacher/students/password", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ ok: boolean }>;
+}
+
+export async function importTeacherClassStudentsFile(payload: { classCode: string; className: string; file: File }) {
+  const formData = new FormData();
+  formData.append("classCode", payload.classCode);
+  formData.append("className", payload.className);
+  formData.append("file", payload.file);
+
+  const response = await fetch("/api/teacher/classes/import-students", {
+    method: "POST",
+    body: formData,
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<StudentImportResult>;
 }

@@ -44,6 +44,20 @@
   padding: 8px 10px;
 }
 
+.account-chip-button {
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.account-chip-button:hover,
+.account-chip-button:focus-visible {
+  border-color: var(--green);
+  background: var(--soft);
+  outline: none;
+}
+
 .account-chip small {
   display: block;
   color: var(--muted);
@@ -68,6 +82,11 @@
   max-width: 1400px;
   margin: 0 auto;
   padding: 16px 28px 28px;
+}
+
+.teacher-dashboard-single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 1120px;
 }
 
 .teacher-workspace {
@@ -106,6 +125,271 @@
 .dashboard-hero .primary-btn {
   flex: 0 0 auto;
   width: 176px;
+}
+
+.student-import-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 18px;
+}
+
+.student-import-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.student-import-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+}
+
+.student-import-tabs button {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.student-import-tabs button.active,
+.student-import-tabs button:hover {
+  border-color: var(--green);
+  background: var(--soft);
+  color: var(--green-dark);
+}
+
+.student-import-panel label {
+  display: grid;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.student-import-panel input,
+.student-import-panel textarea {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 10px 12px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.student-import-panel textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.label-with-tooltip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.policy-help {
+  position: relative;
+  display: inline-grid;
+  width: 22px;
+  height: 22px;
+  place-items: center;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  color: var(--green);
+  font-size: 0.8rem;
+  font-weight: 900;
+  cursor: help;
+}
+
+.policy-tooltip {
+  position: absolute;
+  z-index: 30;
+  left: 28px;
+  top: -10px;
+  display: grid;
+  width: min(380px, 78vw);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgba(13, 30, 23, 0.14);
+  color: var(--ink);
+  line-height: 1.5;
+  padding: 12px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: 0.16s ease;
+}
+
+.policy-help:hover .policy-tooltip,
+.policy-help:focus .policy-tooltip {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.quick-student-panel {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.quick-student-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.student-import-message {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.student-result-backdrop {
+  position: fixed;
+  z-index: 120;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(13, 30, 23, 0.42);
+  padding: 20px;
+}
+
+.student-result-modal {
+  display: grid;
+  gap: 14px;
+  width: min(1120px, 100%);
+  max-height: min(86vh, 820px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: 0 24px 70px rgba(13, 30, 23, 0.28);
+  padding: 18px;
+}
+
+.student-result-modal header {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: start;
+}
+
+.modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.student-result-modal h2 {
+  margin: 4px 0 0;
+}
+
+.student-import-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.student-import-stats span {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--muted);
+  padding: 12px;
+  font-weight: 800;
+}
+
+.student-import-stats strong {
+  color: var(--ink);
+  font-size: 1.6rem;
+}
+
+.generated-passwords,
+.import-errors {
+  display: grid;
+  gap: 10px;
+}
+
+.generated-passwords h2,
+.import-errors h2 {
+  margin: 0;
+}
+
+.password-table {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: auto;
+}
+
+.password-row {
+  display: grid;
+  grid-template-columns: 120px minmax(180px, 1fr) 160px 160px;
+  gap: 10px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 12px;
+}
+
+.password-row-edit {
+  grid-template-columns: 110px minmax(180px, 1fr) 150px 120px minmax(260px, 1.2fr);
+}
+
+.password-row:last-child {
+  border-bottom: 0;
+}
+
+.password-row.header {
+  background: var(--soft);
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.password-row strong {
+  color: var(--green-dark);
+}
+
+.password-edit-cell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.password-edit-cell input {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 8px 10px;
+  font: inherit;
+}
+
+.import-errors p {
+  margin: 0;
+  border: 1px solid rgba(201, 76, 76, 0.25);
+  border-radius: 8px;
+  background: #fff6f6;
+  color: #8a3a3a;
+  padding: 10px;
 }
 
 .exam-detail-panel,
@@ -179,6 +463,61 @@
   padding-right: 4px;
 }
 
+.teacher-profile-modal {
+  position: relative;
+  display: grid;
+  width: min(520px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  gap: 14px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 22px 80px rgba(23, 33, 27, 0.24);
+  padding: 24px;
+}
+
+.teacher-profile-modal h2 {
+  margin-top: 4px;
+}
+
+.teacher-profile-modal label {
+  display: grid;
+  gap: 8px;
+  font-weight: 800;
+}
+
+.teacher-profile-modal input {
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 12px;
+  font: inherit;
+  font-weight: 400;
+}
+
+.teacher-profile-modal input:focus {
+  border-color: var(--green);
+  outline: none;
+}
+
+.profile-account-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 10px;
+}
+
+.profile-account-row small {
+  display: block;
+  color: var(--muted);
+}
+
 .stat-selector {
   display: grid;
   gap: 6px;
@@ -187,7 +526,7 @@
 
 .metric-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 10px;
 }
 
@@ -321,6 +660,26 @@
 
 .wrong-item p,
 .wrong-item span {
+  margin: 0;
+  color: var(--muted);
+}
+
+.attempt-wrong-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.attempt-wrong-item {
+  display: grid;
+  gap: 4px;
+  border-left: 3px solid var(--green);
+  background: #ffffff;
+  padding: 10px 12px;
+}
+
+.attempt-wrong-item p,
+.attempt-wrong-item span {
   margin: 0;
   color: var(--muted);
 }
@@ -519,6 +878,17 @@ button.teacher-exam-card {
   .metric-grid,
   .stats-row {
     grid-template-columns: 1fr;
+  }
+
+  .student-import-grid,
+  .student-import-stats,
+  .quick-student-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .password-row,
+  .password-row-edit {
+    grid-template-columns: 110px minmax(220px, 1fr) 150px 120px minmax(260px, 1fr);
   }
 }
 

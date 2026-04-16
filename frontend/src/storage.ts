@@ -4,6 +4,7 @@ export type AuthSession = {
   account: string;
   role: Role;
   signedInAt: number;
+  displayName?: string;
 };
 
 export function readJSON<T>(storage: Storage, key: string): T | null {

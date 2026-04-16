@@ -38,11 +38,11 @@ Mở URL Vite in ra terminal. Vite proxy `/api` sang `http://localhost:8080`.
 - `/`: trang index chỉ có hai lựa chọn vai trò.
 - `/login/student`: form đăng nhập sinh viên / học sinh.
 - `/login/teacher`: form đăng nhập giáo viên.
-- `/student`: dashboard mẫu cho sinh viên / học sinh.
+- `/student`: dashboard sinh viên / học sinh đọc từ database.
 - `/student/exam`: trang làm bài độc lập.
 - `/student/review`: trang xem lại bài thi độc lập.
-- `/teacher`: dashboard mẫu cho giáo viên, đang để placeholder để làm sau.
-- `/teacher/create`: trang tạo bài kiểm tra mới, có luồng upload file và AI format ở mức UI mock.
+- `/teacher`: dashboard giáo viên đọc danh sách bài, thống kê và sinh viên từ database.
+- `/teacher/create`: trang tạo bài kiểm tra mới, upload file và parser local trước khi lưu ngân hàng câu hỏi.
 
 Frontend chính nằm trong `frontend/src`. Các trang cũ trong `templates/` đã được thay bằng React routes.
 
@@ -57,7 +57,7 @@ Frontend chính nằm trong `frontend/src`. Các trang cũ trong `templates/` đ
 
 ## Dữ liệu
 
-Hiện tại dữ liệu sinh viên được trả qua mock API trong Go:
+Các màn chính gọi Go API và đọc/ghi PostgreSQL:
 
 - `/api/student/dashboard`
 - `/api/student/exams/{id}`
@@ -65,12 +65,10 @@ Hiện tại dữ liệu sinh viên được trả qua mock API trong Go:
 - `/api/teacher/dashboard`
 - `/api/teacher/exams/{id}`
 
-Mock data đang nằm trong `internal/studentdata` và `internal/teacherdata`. Khi thêm database, thay phần đọc dữ liệu ở các module này bằng repository/service đọc từ DB, còn React frontend tiếp tục gọi API.
+Các module `internal/studentdata`, `internal/teacherdata`, `internal/importdata` và `internal/accountdata` là lớp truy cập dữ liệu hiện tại. React frontend không giữ mock nghiệp vụ; nó chỉ gọi API.
 
 ## Quy tắc đăng nhập hiện tại
 
-Trang index không có nút đăng ký tự do. Bản UI test hiện nhận tài khoản/mật khẩu bất kỳ để đi qua flow, lưu session bằng `sessionStorage`.
+Trang index không có nút đăng ký tự do. Đăng nhập dùng tài khoản được cấp trong database, lưu phiên frontend bằng `sessionStorage`.
 
-Dashboard sinh viên lưu tiến trình làm bài bằng `localStorage` theo tài khoản và ca thi demo. Nếu người dùng thoát ra rồi đăng nhập lại cùng tài khoản trên cùng trình duyệt, đáp án và câu đang làm sẽ được mở lại, còn thời gian vẫn tính theo mốc `endAt` ban đầu.
-
-Sau này backend sẽ xác thực tài khoản hoặc mã truy cập do trường cấp, đồng thời lưu bài làm và thời gian trên server để tránh sửa dữ liệu phía client.
+Tiến trình làm bài được lưu trong `exam_attempts`, `attempt_questions`, `student_answers` và `student_answer_options`. Nếu người dùng thoát ra rồi đăng nhập lại, backend khôi phục lần làm còn hạn; thời gian vẫn tính theo `end_at` trong database.

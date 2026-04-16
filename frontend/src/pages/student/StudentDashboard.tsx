@@ -3,9 +3,8 @@ import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { type StudentDashboard as StudentDashboardData, getStudentDashboard } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
-import { clearAuth, readJSON } from "../../storage";
+import { clearAuth } from "../../storage";
 import { Brand } from "../../shared/Brand";
-import type { Attempt } from "../../features/student-exam/attemptStorage";
 
 export function StudentDashboard() {
   const auth = useRequiredAuth("student");
@@ -18,14 +17,12 @@ export function StudentDashboard() {
     queryFn: () => getStudentDashboard(auth.account),
   });
   const initials = (auth.account || "SV").slice(0, 2).toUpperCase();
-  const attempt = readJSON<Attempt>(localStorage, `examhub:attempt:${auth.account}:go-basics-demo`);
-  const answered = attempt?.answers ? Object.keys(attempt.answers).length : 0;
   const data = dashboard.data;
 
   return (
     <>
       <header className="student-topbar">
-        <Brand />
+        <Brand to="/student" />
         <nav className="student-nav" aria-label="Điều hướng sinh viên">
           {[
             ["overview", "Tổng quan"],
@@ -65,7 +62,7 @@ export function StudentDashboard() {
               <article><span>Bài có thể làm</span><strong>{data.summary.availableCount}</strong></article>
               <article><span>Lịch dự kiến</span><strong>{data.summary.plannedCount}</strong></article>
               <article><span>Điểm gần nhất</span><strong>{data.summary.latestScore}</strong></article>
-              <article><span>Tiến trình đang lưu</span><strong>{answered}/12</strong></article>
+              <article><span>Lịch sử đã lưu</span><strong>{data.history.length}</strong></article>
             </section>
             <StudentOverview active={view === "overview"} data={data} account={auth.account} />
             <StudentPlanned active={view === "planned"} data={data} />

@@ -251,7 +251,6 @@ function scoreQuestion(draft: DraftQuestion): ParsedQuestion {
 
   if (draft.options.length >= 4) {
     confidence += 30;
-    if (draft.options.length > 4) warnings.push("Có hơn 4 lựa chọn, cần giáo viên xác nhận câu này không bị dính thêm dòng.");
   }
   else if (draft.options.length >= 2) {
     confidence += 18;
@@ -274,7 +273,6 @@ function scoreQuestion(draft: DraftQuestion): ParsedQuestion {
   else if (draft.correctLabel) warnings.push(`Đáp án ${draft.correctLabel} không khớp lựa chọn đã tách.`);
   else warnings.push("Chưa tìm thấy đáp án đúng.");
 
-  if (draft.options.length > 4 && confidence >= 80) confidence = 79;
   if (!hasValidAnswer && confidence >= 80) confidence = 79;
   const status = confidence >= 80 ? "pass" : confidence >= 60 ? "review" : "fail";
 

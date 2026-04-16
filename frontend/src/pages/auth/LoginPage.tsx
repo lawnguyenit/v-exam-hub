@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { login } from "../../api";
 import { type Role, writeAuth } from "../../storage";
 import { Brand } from "../../shared/Brand";
 
@@ -7,24 +8,34 @@ export function LoginPage({ role }: { role: Role }) {
   const navigate = useNavigate();
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [message, setMessage] = useState(
     role === "teacher"
-      ? "Luồng giáo viên hiện là placeholder, nhưng vẫn đi qua bước đăng nhập để giữ đúng flow."
-      : "Bản UI test chấp nhận tài khoản/mật khẩu bất kỳ. Backend thật sẽ xác thực bằng dữ liệu trường cấp.",
+      ? "Chỉ tài khoản giáo viên đã được cấp mới đăng nhập được."
+      : "Chỉ tài khoản sinh viên/học sinh đã được cấp mới đăng nhập được.",
   );
 
   useEffect(() => {
     sessionStorage.setItem("examhub:lastRole", role);
   }, [role]);
 
-  function submit(event: FormEvent<HTMLFormElement>) {
+  async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!account.trim() || !password.trim()) {
       setMessage("Cần nhập đủ tài khoản và mật khẩu được cấp.");
       return;
     }
-    writeAuth({ account: account.trim(), role, signedInAt: Date.now() });
-    navigate(role === "teacher" ? "/teacher" : "/student");
+    setIsSigningIn(true);
+    setMessage("Đang xác thực tài khoản...");
+    try {
+      const auth = await login({ username: account.trim(), password, role });
+      writeAuth({ account: auth.username, role, signedInAt: Date.now(), displayName: auth.displayName });
+      navigate(role === "teacher" ? "/teacher" : "/student");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Đăng nhập thất bại.");
+    } finally {
+      setIsSigningIn(false);
+    }
   }
 
   return (
@@ -60,7 +71,9 @@ export function LoginPage({ role }: { role: Role }) {
             placeholder={role === "teacher" ? "Mật khẩu giáo viên" : "Mật khẩu hoặc mã truy cập"}
             required
           />
-          <button className="primary-btn" type="submit">Vào dashboard</button>
+          <button className="primary-btn" type="submit" disabled={isSigningIn}>
+            {isSigningIn ? "Đang đăng nhập..." : "Vào dashboard"}
+          </button>
           <p className="form-message">{message}</p>
         </form>
         <Link className="back-link" to="/">Chọn tư cách khác</Link>

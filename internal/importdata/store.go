@@ -139,6 +139,88 @@ func UpdateImportItem(ctx context.Context, db *pgxpool.Pool, batchID int64, ques
 	return nil
 }
 
+type ApprovePassedResult struct {
+	ImportBatchID   int64 `json:"importBatchId"`
+	Approved        int   `json:"approved"`
+	AlreadyApproved int   `json:"alreadyApproved"`
+	Skipped         int   `json:"skipped"`
+	Rejected        int   `json:"rejected"`
+}
+
+func ApprovePassedImportItems(ctx context.Context, db *pgxpool.Pool, batchID int64) (ApprovePassedResult, error) {
+	result := ApprovePassedResult{ImportBatchID: batchID}
+	if db == nil {
+		return result, fmt.Errorf("database is not configured")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx)
+
+	rows, err := tx.Query(ctx, `
+		SELECT ii.id, ii.parsed_question_json, ii.review_status,
+			EXISTS (SELECT 1 FROM question_bank qb WHERE qb.import_item_id = ii.id) AS already_saved
+		FROM import_items ii
+		WHERE ii.batch_id = $1
+		ORDER BY ii.item_order
+	`, batchID)
+	if err != nil {
+		return result, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var itemID int64
+		var payload []byte
+		var reviewStatus string
+		var alreadySaved bool
+		if err := rows.Scan(&itemID, &payload, &reviewStatus, &alreadySaved); err != nil {
+			return result, err
+		}
+		if alreadySaved || reviewStatus == "approved" {
+			result.AlreadyApproved++
+			continue
+		}
+		var question ParsedQuestion
+		if err := json.Unmarshal(payload, &question); err != nil {
+			result.Rejected++
+			continue
+		}
+		if question.Status != "pass" {
+			result.Skipped++
+			continue
+		}
+		var questionID int64
+		if err := tx.QueryRow(ctx, `
+			INSERT INTO question_bank (import_item_id, question_type, content, question_status)
+			VALUES ($1, 'single_choice', $2, 'active')
+			RETURNING id
+		`, itemID, question.Content).Scan(&questionID); err != nil {
+			return result, err
+		}
+		for index, option := range question.Options {
+			if _, err := tx.Exec(ctx, `
+				INSERT INTO question_bank_options (question_id, option_order, content, is_correct)
+				VALUES ($1, $2, $3, $4)
+			`, questionID, index+1, option.Content, strings.EqualFold(option.Label, question.CorrectLabel)); err != nil {
+				return result, err
+			}
+		}
+		if _, err := tx.Exec(ctx, `UPDATE import_items SET review_status = 'approved', updated_at = NOW() WHERE id = $1`, itemID); err != nil {
+			return result, err
+		}
+		result.Approved++
+	}
+	if err := rows.Err(); err != nil {
+		return result, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	return result, nil
+}
+
 func saveOriginalUpload(batchID int64, filename string, content []byte) (string, error) {
 	dir := filepath.Join("data", "imports", fmt.Sprintf("%d", batchID))
 	if err := os.MkdirAll(dir, 0o755); err != nil {
