@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { type StudentDashboard as StudentDashboardData, getStudentDashboard } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
 import { clearAuth } from "../../storage";
@@ -8,7 +8,9 @@ import { Brand } from "../../shared/Brand";
 
 export function StudentDashboard() {
   const auth = useRequiredAuth("student");
-  const [view, setView] = useState("overview");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialView = searchParams.get("view") || "overview";
+  const [view, setView] = useState(["overview", "planned", "history", "profile"].includes(initialView) ? initialView : "overview");
 
   if (!auth) return <Navigate to="/" replace />;
 
@@ -18,6 +20,11 @@ export function StudentDashboard() {
   });
   const initials = (auth.account || "SV").slice(0, 2).toUpperCase();
   const data = dashboard.data;
+
+  function switchView(nextView: string) {
+    setView(nextView);
+    setSearchParams(nextView === "overview" ? {} : { view: nextView });
+  }
 
   return (
     <>
@@ -30,7 +37,7 @@ export function StudentDashboard() {
             ["history", "Lịch sử"],
             ["profile", "Hồ sơ"],
           ].map(([key, label]) => (
-            <button key={key} className={`nav-tab ${view === key ? "active" : ""}`} type="button" onClick={() => setView(key)}>
+            <button key={key} className={`nav-tab ${view === key ? "active" : ""}`} type="button" onClick={() => switchView(key)}>
               {label}
             </button>
           ))}
@@ -81,16 +88,14 @@ function StudentOverview({ active, data, account }: { active: boolean; data: Stu
       <div className="section-head"><div><p className="eyebrow">Tổng quan</p><h2>Việc cần làm hôm nay</h2></div></div>
       <div className="dashboard-grid">
         <div className="exam-list" aria-label="Bài kiểm tra có thể làm">
-          {data.availableExams.map((exam, index) => (
-            <article className={`exam-card ${index === 0 ? "featured" : ""}`} key={exam.id}>
+          {data.availableExams.map((exam) => (
+            <article className="exam-card" key={exam.id}>
               <div>
                 <p className="eyebrow">{exam.status}</p>
                 <h3>{exam.title}</h3>
                 <p>{exam.meta} Thời lượng {exam.duration}.</p>
               </div>
-              <Link className={index === 0 ? "primary-btn" : "ghost-btn"} to={`/student/exam?id=${encodeURIComponent(exam.id)}`}>
-                Vào làm bài
-              </Link>
+              <Link className="primary-btn" to={`/student/exam?id=${encodeURIComponent(exam.id)}`}>Vào làm bài</Link>
             </article>
           ))}
         </div>
@@ -123,19 +128,34 @@ function StudentPlanned({ active, data }: { active: boolean; data: StudentDashbo
 }
 
 function StudentHistory({ active, data }: { active: boolean; data: StudentDashboardData }) {
+  const [historyQuery, setHistoryQuery] = useState("");
+  const filteredHistory = data.history.filter((record) => (
+    `${record.title} ${record.date} ${record.score}`.toLowerCase().includes(historyQuery.toLowerCase())
+  ));
+
   return (
     <section className={`view-panel ${active ? "active" : ""}`}>
-      <div className="section-head"><div><p className="eyebrow">Lịch sử bài thi</p><h2>Xem lại kết quả và chi tiết</h2></div></div>
+      <div className="section-head">
+        <div><p className="eyebrow">Lịch sử bài thi</p><h2>Xem lại kết quả và chi tiết</h2></div>
+        <input
+          className="history-search"
+          value={historyQuery}
+          onChange={(event) => setHistoryQuery(event.target.value)}
+          type="search"
+          placeholder="Tìm theo tên bài kiểm tra"
+        />
+      </div>
       <div className="history-table" role="table" aria-label="Lịch sử bài thi">
         <div className="history-row header" role="row">
           <span>Bài thi</span><span>Ngày thi</span><span>Điểm</span><span>Thời gian</span><span></span>
         </div>
-        {data.history.map((record) => (
+        {filteredHistory.map((record) => (
           <div className="history-row" role="row" key={record.id}>
             <span>{record.title}</span><span>{record.date}</span><span>{record.score}</span><span>{record.duration}</span>
             <Link className="ghost-btn" to={`/student/review?id=${encodeURIComponent(record.id)}`}>Xem chi tiết</Link>
           </div>
         ))}
+        {!filteredHistory.length && <div className="history-row"><span>Không có lịch sử phù hợp.</span></div>}
       </div>
     </section>
   );

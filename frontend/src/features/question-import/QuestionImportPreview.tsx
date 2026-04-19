@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { ParseResult, ParsedQuestion } from "./ruleParser";
+import { RichQuestionText } from "../../shared/RichQuestionText";
 
 type PreviewMode = "all" | "needs-review";
 type QuestionFilter = "all" | ParsedQuestion["status"];
@@ -13,14 +14,18 @@ export function QuestionImportPreview({
   result,
   mode = "all",
   onQuestionSave,
+  onQuestionDelete,
 }: {
   result: ParseResult;
   mode?: PreviewMode;
   onQuestionSave?: (index: number, question: ParsedQuestion) => Promise<void>;
+  onQuestionDelete?: (index: number, question: ParsedQuestion) => Promise<void>;
 }) {
   const { summary, questions } = result;
   const [filter, setFilter] = useState<QuestionFilter>(mode === "needs-review" ? "review" : "all");
   const [editing, setEditing] = useState<EditingQuestion | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<EditingQuestion | null>(null);
+  const [deletingIndex, setDeletingIndex] = useState<number | null>(null);
   const baseQuestions = questions
     .map((question, index) => ({ question, index }))
     .filter(({ question }) => mode !== "needs-review" || question.status !== "pass");
@@ -32,6 +37,17 @@ export function QuestionImportPreview({
     if (!editing || !onQuestionSave) return;
     await onQuestionSave(editing.index, question);
     setEditing(null);
+  }
+
+  async function deleteQuestion(index: number, question: ParsedQuestion) {
+    if (!onQuestionDelete) return;
+    setDeletingIndex(index);
+    try {
+      await onQuestionDelete(index, question);
+      setPendingDelete(null);
+    } finally {
+      setDeletingIndex(null);
+    }
   }
 
   return (
@@ -54,10 +70,34 @@ export function QuestionImportPreview({
           {visibleQuestions.map(({ question, index }) => (
             <QuestionCard
               question={question}
+              assetBatchId={result.importBatchId}
               key={`${index}-${question.sourceOrder}`}
               onEdit={onQuestionSave ? () => setEditing({ index, question }) : undefined}
+              onDelete={onQuestionDelete ? () => setPendingDelete({ index, question }) : undefined}
+              isDeleting={deletingIndex === index}
             />
           ))}
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="question-modal-backdrop" role="presentation">
+          <section className="question-confirm-modal" role="dialog" aria-modal="true" aria-label={`Xác nhận xoá câu ${pendingDelete.question.sourceOrder}`}>
+            <p className="eyebrow">Xác nhận xoá</p>
+            <h3>Xoá Câu {pendingDelete.question.sourceOrder}?</h3>
+            <p>Câu này sẽ bị loại khỏi batch import hiện tại. Dùng thao tác này khi câu bị dư, dính format hoặc không thể sửa thành câu hợp lệ.</p>
+            <div className="modal-actions">
+              <button className="ghost-btn" type="button" onClick={() => setPendingDelete(null)}>Huỷ</button>
+              <button
+                className="primary-btn danger"
+                type="button"
+                disabled={deletingIndex !== null}
+                onClick={() => void deleteQuestion(pendingDelete.index, pendingDelete.question)}
+              >
+                {deletingIndex !== null ? "Đang xoá..." : "Xoá câu"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
 
@@ -94,7 +134,19 @@ function Score({
   );
 }
 
-function QuestionCard({ question, onEdit }: { question: ParsedQuestion; onEdit?: () => void }) {
+function QuestionCard({
+  question,
+  assetBatchId,
+  onEdit,
+  onDelete,
+  isDeleting,
+}: {
+  question: ParsedQuestion;
+  assetBatchId?: number;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+}) {
   return (
     <article className={`parsed-question ${question.status}`}>
       <div className="parsed-question-top">
@@ -111,18 +163,27 @@ function QuestionCard({ question, onEdit }: { question: ParsedQuestion; onEdit?:
           )}
         </span>
       </div>
-      <p>{question.content || "Chưa tách được nội dung câu hỏi."}</p>
+      <p><RichQuestionText text={question.content || "Chua tach duoc noi dung cau hoi."} assetBatchId={assetBatchId} /></p>
       <div className="parsed-options">
         {question.options.map((option) => (
           <span className={option.label === question.correctLabel ? "correct" : ""} key={`${question.sourceOrder}-${option.label}`}>
-            {option.label}. {option.content}
+            {option.label}. <RichQuestionText text={option.content} assetBatchId={assetBatchId} />
           </span>
         ))}
       </div>
-      {onEdit && (
-        <button className="question-edit-trigger" type="button" onClick={onEdit}>
-          Sửa câu này
-        </button>
+      {(onEdit || onDelete) && (
+        <div className="question-card-actions">
+          {onEdit && (
+            <button className="question-edit-trigger" type="button" onClick={onEdit}>
+              Sửa câu này
+            </button>
+          )}
+          {onDelete && (
+            <button className="question-delete-trigger" type="button" onClick={onDelete} disabled={isDeleting}>
+              {isDeleting ? "Đang xoá..." : "Xoá câu"}
+            </button>
+          )}
+        </div>
       )}
     </article>
   );
@@ -156,6 +217,20 @@ function QuestionEditModal({
     updateDraft({ options: [...draft.options, { label, content: "" }] });
   }
 
+  function removeOption(optionIndex: number) {
+    const removedLabel = draft.options[optionIndex]?.label;
+    let nextCorrectLabel = draft.correctLabel;
+    const nextOptions = draft.options
+      .filter((_, index) => index !== optionIndex)
+      .map((option, index) => {
+        const nextLabel = String.fromCharCode("A".charCodeAt(0) + index);
+        if (option.label === draft.correctLabel) nextCorrectLabel = nextLabel;
+        return { ...option, label: nextLabel };
+      });
+    if (removedLabel && removedLabel === draft.correctLabel) nextCorrectLabel = undefined;
+    updateDraft({ options: nextOptions, correctLabel: nextCorrectLabel });
+  }
+
   async function saveDraft() {
     setSaveState("saving");
     try {
@@ -183,10 +258,15 @@ function QuestionEditModal({
 
         <div className="option-editor-list">
           {draft.options.map((option, optionIndex) => (
-            <label key={option.label}>
-              {option.label}
-              <input value={option.content} onChange={(event) => updateOption(optionIndex, event.target.value)} />
-            </label>
+            <div className="option-editor-row" key={`${option.label}-${optionIndex}`}>
+              <label>
+                {option.label}
+                <input value={option.content} onChange={(event) => updateOption(optionIndex, event.target.value)} />
+              </label>
+              <button className="ghost-btn danger" type="button" onClick={() => removeOption(optionIndex)}>
+                Xoá
+              </button>
+            </div>
           ))}
         </div>
 

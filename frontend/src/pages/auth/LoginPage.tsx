@@ -48,7 +48,7 @@ export function LoginPage({ role }: { role: Role }) {
             <h1>{role === "teacher" ? "Đăng nhập quản lý lớp thi" : "Đăng nhập để làm bài"}</h1>
             <p>
               {role === "teacher"
-                ? "Tài khoản giáo viên do nhà trường cấp, không mở đăng ký tự do."
+                ? "Tài khoản giáo viên do admin cấp"
                 : "Tiến trình cũ sẽ được mở lại nếu đăng nhập cùng tài khoản trên trình duyệt này."}
             </p>
           </div>

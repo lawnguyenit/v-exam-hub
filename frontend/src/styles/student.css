@@ -99,6 +99,7 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
+  align-items: stretch;
 }
 
 .summary-strip article,
@@ -118,6 +119,8 @@
 .summary-strip article {
   display: grid;
   gap: 8px;
+  min-height: 116px;
+  align-content: center;
 }
 
 .summary-strip span,
@@ -167,8 +170,19 @@
   gap: 16px;
 }
 
+.exam-list {
+  max-height: 420px;
+  overflow: auto;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 12px;
+}
+
 .exam-card {
   display: flex;
+  min-height: 132px;
   align-items: center;
   justify-content: space-between;
   gap: 18px;
@@ -186,10 +200,6 @@
   margin: 8px 0 0;
   color: var(--muted);
   line-height: 1.6;
-}
-
-.featured {
-  min-height: 220px;
 }
 
 .profile-card,
@@ -230,10 +240,20 @@
 
 .history-table {
   display: grid;
-  overflow: hidden;
+  max-height: 420px;
+  overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+}
+
+.history-search {
+  width: min(360px, 100%);
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 0 14px;
 }
 
 .history-row {
@@ -250,6 +270,9 @@
 }
 
 .history-row.header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   background: var(--soft);
   color: var(--muted);
   font-weight: 800;

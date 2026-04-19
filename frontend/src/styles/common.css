@@ -76,6 +76,22 @@ h3 {
   color: #ffffff;
 }
 
+.rich-question-text {
+  white-space: pre-wrap;
+}
+
+.question-inline-image {
+  display: block;
+  width: auto;
+  max-width: min(100%, 560px);
+  max-height: 360px;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  margin: 10px 0;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--coral);

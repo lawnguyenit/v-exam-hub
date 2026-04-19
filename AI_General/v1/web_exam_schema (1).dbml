@@ -63,6 +63,7 @@ Enum import_review_status_enum {
 Enum exam_mode_enum {
   practice
   official
+  attendance
 }
 
 Enum exam_status_enum {

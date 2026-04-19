@@ -23,6 +23,7 @@ export type ParseSummary = {
 };
 
 export type ParseResult = {
+  importBatchId?: number;
   questions: ParsedQuestion[];
   summary: ParseSummary;
 };

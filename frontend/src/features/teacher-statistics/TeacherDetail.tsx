@@ -7,11 +7,17 @@ export function TeacherDetail({
   statMode,
   onStatMode,
   onOpen,
+  onEdit,
+  onAccessCode,
+  onSnapshot,
 }: {
   exam?: TeacherExamDetail;
   statMode: string;
   onStatMode: (mode: string) => void;
   onOpen: (content: ReactNode) => void;
+  onEdit: (examID: string) => void;
+  onAccessCode: (examID: string) => void;
+  onSnapshot: (examID: string) => void;
 }) {
   const active = activeStatisticsTable(exam, statMode);
   const rows = active ? buildTeacherRows(exam, active.key, active.table) : [];
@@ -27,12 +33,23 @@ export function TeacherDetail({
           <h2>{exam?.title || "Chọn một bài thi ở danh sách bên phải"}</h2>
           <p>{exam ? `${exam.status} - ${exam.targetClass} - ${exam.startTime}` : "Bảng thống kê sẽ hiển thị theo option bạn chọn."}</p>
         </div>
-        <label className="stat-selector">
-          <span>Hiển thị bảng</span>
-          <select value={statMode} onChange={(event) => onStatMode(event.target.value)}>
-            {Object.entries(statLabels).map(([key, label]) => <option value={key} key={key}>{label}</option>)}
-          </select>
-        </label>
+        <div className="detail-actions">
+          <label className="stat-selector">
+            <span>Hiển thị bảng</span>
+            <select value={statMode} onChange={(event) => onStatMode(event.target.value)}>
+              {Object.entries(statLabels).map(([key, label]) => <option value={key} key={key}>{label}</option>)}
+            </select>
+          </label>
+          {exam && (
+            <div className="detail-action-row">
+              {(exam.examMode === "official" || exam.examMode === "attendance") && (
+                <button className="table-action" type="button" onClick={() => onAccessCode(exam.id)}>Tạo mã</button>
+              )}
+              <button className="table-action" type="button" onClick={() => onSnapshot(exam.id)}>Snapshot</button>
+              <a className="table-action" href={`/api/teacher/exams/${encodeURIComponent(exam.id)}/export`}>Export XLSX</a>
+            </div>
+          )}
+        </div>
       </div>
       <div className="metric-grid">
         {exam
@@ -51,7 +68,7 @@ export function TeacherDetail({
       </div>
       <div className="stats-scroll">
         {shouldShowEmptyState ? (
-          <TeacherStatsEmptyState exam={exam} mode={active?.key || statMode} />
+          <TeacherStatsEmptyState exam={exam} mode={active?.key || statMode} onEdit={onEdit} />
         ) : (
           <div className="stats-table">
             <div className="stats-row header" style={{ "--columns": columns.length + 1 } as CSSProperties}>
@@ -71,7 +88,7 @@ export function TeacherDetail({
   );
 }
 
-function TeacherStatsEmptyState({ exam, mode }: { exam?: TeacherExamDetail; mode: string }) {
+function TeacherStatsEmptyState({ exam, mode, onEdit }: { exam?: TeacherExamDetail; mode: string; onEdit: (examID: string) => void }) {
   const copy = emptyStateCopy(exam, mode);
 
   return (
@@ -80,7 +97,7 @@ function TeacherStatsEmptyState({ exam, mode }: { exam?: TeacherExamDetail; mode
       <h3>{copy.title}</h3>
       <p>{copy.message}</p>
       <div className="empty-actions">
-        <button className="ghost-btn" type="button">Xem cấu hình bài thi</button>
+        <button className="ghost-btn" type="button" disabled={!exam} onClick={() => exam && onEdit(exam.id)}>Xem cấu hình bài thi</button>
         <button className="primary-btn" type="button" disabled>{copy.action}</button>
       </div>
     </article>

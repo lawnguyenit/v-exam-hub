@@ -41,12 +41,15 @@ export type Exam = {
   id: string;
   title: string;
   durationSeconds: number;
+  examMode: "practice" | "official" | "attendance";
+  requiresAccessCode: boolean;
   questions: ExamQuestion[];
 };
 
 export type ExamQuestion = {
   title: string;
   answers: string[];
+  assetBatchId?: number;
 };
 
 export type Review = {
@@ -61,6 +64,7 @@ export type ReviewQuestion = {
   answers: string[];
   correctAnswer: number;
   selectedAnswer: number;
+  assetBatchId?: number;
 };
 
 export type TeacherDashboard = {
@@ -87,6 +91,20 @@ export type TeacherExamSummary = {
 };
 
 export type TeacherExamDetail = TeacherExamSummary & {
+  description: string;
+  statusCode: string;
+  examMode: "practice" | "official" | "attendance";
+  classId: number;
+  startValue: string;
+  durationMinutes: number;
+  maxAttemptsPerStudent: number;
+  shuffleQuestions: boolean;
+  shuffleOptions: boolean;
+  showResultImmediately: boolean;
+  allowReview: boolean;
+  questionSourceId: number;
+  questionCount: number;
+  canEdit: boolean;
   metrics: Metric[];
   tables: Record<string, StatisticsTable>;
   students?: StudentAttemptDetail[];
@@ -228,6 +246,58 @@ export type TeacherClass = {
   className: string;
 };
 
+export type QuestionBankItem = {
+  id: number;
+  title: string;
+  sourceName: string;
+  questionCount: number;
+  createdAt: string;
+};
+
+export type ExamCreatePayload = {
+  examId?: string;
+  createdBy: string;
+  title: string;
+  description?: string;
+  examMode: "practice" | "official" | "attendance";
+  classId: number;
+  startTime: string;
+  durationMinutes: number;
+  maxAttemptsPerStudent: number;
+  shuffleQuestions: boolean;
+  shuffleOptions: boolean;
+  showResultImmediately: boolean;
+  allowReview: boolean;
+  questionIds: number[];
+  questionSourceId: number;
+  questionCount: number;
+};
+
+export type AccessCodeResult = {
+  examId: string;
+  code: string;
+  expiresAt: string;
+  expiresAtUnix: number;
+  durationMinute: number;
+};
+
+export type ExamLiveSnapshot = {
+  examId: string;
+  generatedAt: string;
+  total: number;
+  inProgress: number;
+  submitted: number;
+  notStarted: number;
+  rows: Array<{
+    studentCode: string;
+    name: string;
+    status: string;
+    attemptCount: number;
+    bestScore: string;
+    lastSeen: string;
+  }>;
+};
+
 async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
@@ -280,7 +350,7 @@ export async function login(payload: { username: string; password: string; role:
   return response.json() as Promise<LoginResult>;
 }
 
-export async function startStudentAttempt(payload: { account: string; examId: string }) {
+export async function startStudentAttempt(payload: { account: string; examId: string; accessCode?: string }) {
   const response = await fetch("/api/student/attempts/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -340,9 +410,12 @@ export async function submitStudentAttempt(payload: { attemptId: number }) {
   return response.json() as Promise<AttemptState>;
 }
 
-export async function parseTeacherImport(file: File) {
+export async function parseTeacherImport(file: File, account?: string) {
   const formData = new FormData();
   formData.append("file", file);
+  if (account) {
+    formData.append("account", account);
+  }
 
   const response = await fetch("/api/teacher/import/parse", {
     method: "POST",
@@ -366,6 +439,18 @@ export async function saveTeacherImportItem(importBatchId: number, question: Imp
   return response.json() as Promise<{ ok: boolean }>;
 }
 
+export async function deleteTeacherImportItem(importBatchId: number, importItemId: number) {
+  const response = await fetch("/api/teacher/import/items/delete", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ importBatchId, importItemId }),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ ok: boolean }>;
+}
+
 export async function approveTeacherImportPassItems(importBatchId: number) {
   const response = await fetch("/api/teacher/import/approve-pass", {
     method: "POST",
@@ -381,11 +466,52 @@ export async function approveTeacherImportPassItems(importBatchId: number) {
     alreadyApproved: number;
     skipped: number;
     rejected: number;
+    questionIds: number[];
   }>;
 }
 
 export function getTeacherClasses() {
   return getJSON<TeacherClass[]>("/api/teacher/classes");
+}
+
+export function getTeacherQuestionBank() {
+  return getJSON<QuestionBankItem[]>("/api/teacher/question-bank");
+}
+
+export function getTeacherExamSnapshot(examID: string) {
+  return getJSON<ExamLiveSnapshot>(`/api/teacher/exams/${encodeURIComponent(examID)}/snapshot`);
+}
+
+export async function generateTeacherExamAccessCode(examID: string) {
+  const response = await fetch(`/api/teacher/exams/${encodeURIComponent(examID)}/access-code`, {
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<AccessCodeResult>;
+}
+
+export async function createTeacherExam(payload: ExamCreatePayload) {
+  const response = await fetch("/api/teacher/exams/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ id: string; questionCount: number; status: string }>;
+}
+
+export async function deleteTeacherExam(examID: string) {
+  const response = await fetch(`/api/teacher/exams/${encodeURIComponent(examID)}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ ok: boolean }>;
 }
 
 export async function importTeacherClassStudents(payload: { classCode: string; className: string; rows: string }) {

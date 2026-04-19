@@ -55,15 +55,18 @@ type HistoryRecord struct {
 }
 
 type Exam struct {
-	ID              string     `json:"id"`
-	Title           string     `json:"title"`
-	DurationSeconds int        `json:"durationSeconds"`
-	Questions       []Question `json:"questions"`
+	ID                 string     `json:"id"`
+	Title              string     `json:"title"`
+	DurationSeconds    int        `json:"durationSeconds"`
+	ExamMode           string     `json:"examMode"`
+	RequiresAccessCode bool       `json:"requiresAccessCode"`
+	Questions          []Question `json:"questions"`
 }
 
 type Question struct {
-	Title   string   `json:"title"`
-	Answers []string `json:"answers"`
+	Title        string   `json:"title"`
+	Answers      []string `json:"answers"`
+	AssetBatchID int64    `json:"assetBatchId,omitempty"`
 }
 
 type Review struct {
@@ -79,11 +82,13 @@ type ReviewQuestion struct {
 	Answers        []string `json:"answers"`
 	CorrectAnswer  int      `json:"correctAnswer"`
 	SelectedAnswer int      `json:"selectedAnswer"`
+	AssetBatchID   int64    `json:"assetBatchId,omitempty"`
 }
 
 type AttemptStartRequest struct {
-	Account string `json:"account"`
-	ExamID  string `json:"examId"`
+	Account    string `json:"account"`
+	ExamID     string `json:"examId"`
+	AccessCode string `json:"accessCode"`
 }
 
 type AttemptAnswerRequest struct {
@@ -189,21 +194,36 @@ func StartAttempt(ctx context.Context, db *pgxpool.Pool, payload AttemptStartReq
 	var maxAttempts int
 	var totalPoints float64
 	var status string
+	var mode string
+	var storedAccessCode string
 	if err := tx.QueryRow(ctx, `
-		SELECT duration_seconds, max_attempts_per_student, total_points::float8, exam_status::text
+		SELECT duration_seconds, max_attempts_per_student, total_points::float8,
+			exam_status::text, exam_mode::text, COALESCE(access_code, '')
 		FROM exams
 		WHERE id = $1
-	`, examID).Scan(&durationSeconds, &maxAttempts, &totalPoints, &status); err != nil {
+	`, examID).Scan(&durationSeconds, &maxAttempts, &totalPoints, &status, &mode, &storedAccessCode); err != nil {
 		return AttemptState{}, err
 	}
 	if status != "open" {
 		return AttemptState{}, fmt.Errorf("bài thi chưa mở")
 	}
+	if requiresAccessCode(mode) {
+		ok, err := studentBelongsToExam(ctx, tx, examID, studentID)
+		if err != nil {
+			return AttemptState{}, err
+		}
+		if !ok {
+			return AttemptState{}, fmt.Errorf("tài khoản này không nằm trong danh sách lớp được phép làm bài")
+		}
+		if !validExamAccessCode(storedAccessCode, payload.AccessCode, time.Now()) {
+			return AttemptState{}, fmt.Errorf("bài này cần mã truy cập hợp lệ")
+		}
+	}
 	var usedAttempts int
 	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exam_attempts WHERE exam_id = $1 AND student_user_id = $2 AND attempt_status <> 'cancelled'`, examID, studentID).Scan(&usedAttempts); err != nil {
 		return AttemptState{}, err
 	}
-	if usedAttempts >= maxAttempts {
+	if maxAttempts > 0 && usedAttempts >= maxAttempts {
 		return AttemptState{}, fmt.Errorf("sinh viên đã dùng hết số lần làm bài")
 	}
 	versionID, err := ensureExamVersion(ctx, tx, examID)
@@ -445,20 +465,24 @@ func ExamByID(ctx context.Context, db *pgxpool.Pool, id string) (Exam, bool, err
 		return Exam{}, false, nil
 	}
 	var exam Exam
-	err = db.QueryRow(ctx, `SELECT id::text, title, duration_seconds FROM exams WHERE id = $1`, examID).Scan(&exam.ID, &exam.Title, &exam.DurationSeconds)
+	err = db.QueryRow(ctx, `SELECT id::text, title, duration_seconds, exam_mode::text FROM exams WHERE id = $1`, examID).Scan(&exam.ID, &exam.Title, &exam.DurationSeconds, &exam.ExamMode)
 	if err != nil {
 		if strings.Contains(err.Error(), "no rows") {
 			return Exam{}, false, nil
 		}
 		return Exam{}, false, err
 	}
+	exam.RequiresAccessCode = requiresAccessCode(exam.ExamMode)
 	rows, err := db.Query(ctx, `
-		SELECT qb.content, array_agg(qbo.content ORDER BY qbo.option_order)
+		SELECT qb.content,
+			array_agg(qbo.content ORDER BY qbo.option_order),
+			COALESCE(ii.batch_id, 0)
 		FROM exam_questions eq
 		JOIN question_bank qb ON qb.id = eq.question_id
+		LEFT JOIN import_items ii ON ii.id = qb.import_item_id
 		LEFT JOIN question_bank_options qbo ON qbo.question_id = qb.id
 		WHERE eq.exam_id = $1
-		GROUP BY eq.id, qb.content
+		GROUP BY eq.id, qb.content, ii.batch_id
 		ORDER BY eq.question_order
 	`, examID)
 	if err != nil {
@@ -467,7 +491,7 @@ func ExamByID(ctx context.Context, db *pgxpool.Pool, id string) (Exam, bool, err
 	defer rows.Close()
 	for rows.Next() {
 		var question Question
-		if err := rows.Scan(&question.Title, &question.Answers); err != nil {
+		if err := rows.Scan(&question.Title, &question.Answers, &question.AssetBatchID); err != nil {
 			return Exam{}, false, err
 		}
 		exam.Questions = append(exam.Questions, question)
@@ -500,13 +524,17 @@ func ReviewByID(ctx context.Context, db *pgxpool.Pool, id string) (Review, bool,
 		SELECT aq.content_snapshot,
 			array_agg(aqo.content_snapshot ORDER BY aqo.option_order),
 			COALESCE(MAX(aqo.option_order) FILTER (WHERE aqo.is_correct_snapshot), 1),
-			COALESCE(MAX(aqo.option_order) FILTER (WHERE sao.id IS NOT NULL), 1)
+			COALESCE(MAX(aqo.option_order) FILTER (WHERE sao.id IS NOT NULL), 1),
+			COALESCE(ii.batch_id, 0)
 		FROM attempt_questions aq
+		LEFT JOIN exam_version_questions evq ON evq.id = aq.exam_version_question_id
+		LEFT JOIN question_bank qb ON qb.id = evq.source_question_id
+		LEFT JOIN import_items ii ON ii.id = qb.import_item_id
 		LEFT JOIN attempt_question_options aqo ON aqo.attempt_question_id = aq.id
 		LEFT JOIN student_answers sa ON sa.attempt_question_id = aq.id
 		LEFT JOIN student_answer_options sao ON sao.student_answer_id = sa.id AND sao.attempt_question_option_id = aqo.id
 		WHERE aq.attempt_id = $1
-		GROUP BY aq.id
+		GROUP BY aq.id, ii.batch_id
 		ORDER BY aq.question_order
 	`, attemptID)
 	if err != nil {
@@ -516,7 +544,7 @@ func ReviewByID(ctx context.Context, db *pgxpool.Pool, id string) (Review, bool,
 	for rows.Next() {
 		var question ReviewQuestion
 		var correct, selected int
-		if err := rows.Scan(&question.Title, &question.Answers, &correct, &selected); err != nil {
+		if err := rows.Scan(&question.Title, &question.Answers, &correct, &selected, &question.AssetBatchID); err != nil {
 			return Review{}, false, err
 		}
 		question.CorrectAnswer = max(0, correct-1)
@@ -605,7 +633,16 @@ func populateExamVersion(ctx context.Context, tx pgx.Tx, examID int64, versionID
 }
 
 func snapshotAttemptQuestions(ctx context.Context, tx pgx.Tx, attemptID int64, versionID int64) error {
-	rows, err := tx.Query(ctx, `
+	var shuffleQuestions, shuffleOptions bool
+	if err := tx.QueryRow(ctx, `
+		SELECT shuffle_questions_snapshot, shuffle_options_snapshot
+		FROM exam_versions
+		WHERE id = $1
+	`, versionID).Scan(&shuffleQuestions, &shuffleOptions); err != nil {
+		return err
+	}
+
+	questionSelect := `
 		INSERT INTO attempt_questions (
 			attempt_id, exam_version_question_id, question_order,
 			question_type_snapshot, content_snapshot, explanation_snapshot, points_snapshot
@@ -615,7 +652,22 @@ func snapshotAttemptQuestions(ctx context.Context, tx pgx.Tx, attemptID int64, v
 		WHERE exam_version_id = $2
 		ORDER BY question_order
 		RETURNING id, exam_version_question_id
-	`, attemptID, versionID)
+	`
+	if shuffleQuestions {
+		questionSelect = `
+			INSERT INTO attempt_questions (
+				attempt_id, exam_version_question_id, question_order,
+				question_type_snapshot, content_snapshot, explanation_snapshot, points_snapshot
+			)
+			SELECT $1, id, ROW_NUMBER() OVER (ORDER BY random())::int,
+				question_type_snapshot, content_snapshot, explanation_snapshot, points_snapshot
+			FROM exam_version_questions
+			WHERE exam_version_id = $2
+			RETURNING id, exam_version_question_id
+		`
+	}
+
+	rows, err := tx.Query(ctx, questionSelect, attemptID, versionID)
 	if err != nil {
 		return err
 	}
@@ -632,7 +684,7 @@ func snapshotAttemptQuestions(ctx context.Context, tx pgx.Tx, attemptID int64, v
 		return err
 	}
 	for versionQuestionID, attemptQuestionID := range questionIDs {
-		if _, err := tx.Exec(ctx, `
+		optionSelect := `
 			INSERT INTO attempt_question_options (
 				attempt_question_id, option_order, content_snapshot, is_correct_snapshot
 			)
@@ -640,7 +692,18 @@ func snapshotAttemptQuestions(ctx context.Context, tx pgx.Tx, attemptID int64, v
 			FROM exam_version_question_options
 			WHERE exam_version_question_id = $2
 			ORDER BY option_order
-		`, attemptQuestionID, versionQuestionID); err != nil {
+		`
+		if shuffleOptions {
+			optionSelect = `
+				INSERT INTO attempt_question_options (
+					attempt_question_id, option_order, content_snapshot, is_correct_snapshot
+				)
+				SELECT $1, ROW_NUMBER() OVER (ORDER BY random())::int, content_snapshot, is_correct_snapshot
+				FROM exam_version_question_options
+				WHERE exam_version_question_id = $2
+			`
+		}
+		if _, err := tx.Exec(ctx, optionSelect, attemptQuestionID, versionQuestionID); err != nil {
 			return err
 		}
 	}
@@ -797,9 +860,44 @@ func formatStart(value *time.Time) string {
 	return value.Local().Format("02/01 - 15:04")
 }
 
+func requiresAccessCode(mode string) bool {
+	return mode == "official" || mode == "attendance"
+}
+
+func studentBelongsToExam(ctx context.Context, tx pgx.Tx, examID int64, studentID int64) (bool, error) {
+	var exists bool
+	err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM exam_targets et
+			JOIN class_members cm ON cm.class_id = et.class_id
+			WHERE et.exam_id = $1
+				AND cm.student_user_id = $2
+				AND cm.member_status = 'active'
+		)
+	`, examID, studentID).Scan(&exists)
+	return exists, err
+}
+
+func validExamAccessCode(stored string, input string, now time.Time) bool {
+	parts := strings.Split(strings.TrimSpace(stored), ":")
+	if len(parts) != 2 {
+		return false
+	}
+	code := strings.ToUpper(strings.TrimSpace(parts[0]))
+	expiresUnix, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64)
+	if err != nil || now.Unix() > expiresUnix {
+		return false
+	}
+	return code != "" && code == strings.ToUpper(strings.TrimSpace(input))
+}
+
 func modeLabel(mode string) string {
 	if mode == "official" {
 		return "Chính thức"
+	}
+	if mode == "attendance" {
+		return "Điểm danh"
 	}
 	return "Thi thử"
 }

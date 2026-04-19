@@ -15,5 +15,6 @@ export function statusClass(status: string) {
 export function examTypeClass(examType: string) {
   if (examType === "Thi thử") return "type-practice";
   if (examType === "Chính thức") return "type-official";
+  if (examType === "Điểm danh") return "type-attendance";
   return "type-default";
 }

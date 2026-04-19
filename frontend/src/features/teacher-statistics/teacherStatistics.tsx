@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import type { StatisticsTable, StudentAttemptDetail, TeacherExamDetail } from "../../api";
 
 export const statLabels: Record<string, string> = {
@@ -89,26 +89,71 @@ export function renderTeacherModal(exam: TeacherExamDetail | undefined, key: str
 
 function renderStudentAttempt(student?: StudentAttemptDetail): ReactNode {
   if (!student) return <p>Chưa có dữ liệu sinh viên.</p>;
+  return <StudentAttemptModalContent student={student} />;
+}
+
+function StudentAttemptModalContent({ student }: { student: StudentAttemptDetail }) {
+  const attempts = student.attempts || [];
+  const [selectedAttemptNo, setSelectedAttemptNo] = useState(attempts[0]?.attemptNo ?? 0);
+  const selectedAttempt = useMemo(
+    () => attempts.find((attempt) => attempt.attemptNo === selectedAttemptNo) || attempts[0],
+    [attempts, selectedAttemptNo],
+  );
+
+  if (!attempts.length) {
+    return (
+      <>
+        <p className="eyebrow">Chi tiết sinh viên</p>
+        <h2>{student.name}</h2>
+        <div className="student-detail-meta student-detail-meta-bright">
+          <span>Mã SV: {student.studentCode}</span>
+          <span>Số lần làm: {student.attemptCount}</span>
+          <span>Điểm cao nhất: {student.score}</span>
+          <span>Trạng thái: {student.warning}</span>
+        </div>
+        <p className="empty-note">Sinh viên này chưa có lần làm để xem lại.</p>
+      </>
+    );
+  }
+
   return (
     <>
       <p className="eyebrow">Chi tiết sinh viên</p>
       <h2>{student.name}</h2>
-      <div className="student-detail-meta">
-        <span>Mã SV: {student.studentCode}</span><span>Số lần làm: {student.attemptCount}</span><span>Điểm cao nhất: {student.score}</span><span>Trạng thái: {student.warning}</span>
+      <div className="student-detail-meta student-detail-meta-bright">
+        <span>Mã SV: {student.studentCode}</span>
+        <span>Số lần làm: {student.attemptCount}</span>
+        <span>Điểm cao nhất: {student.score}</span>
+        <span>Trạng thái: {student.warning}</span>
       </div>
-      <div className="wrong-list">
-        <h3>Các lần làm và câu sai</h3>
-        {student.attempts.map((attempt) => (
-          <div className="wrong-item" key={attempt.attemptNo}>
+      <div className="attempt-picker">
+        {attempts.map((attempt) => (
+          <button
+            className={`attempt-tab ${attempt.attemptNo === selectedAttempt?.attemptNo ? "active" : ""}`}
+            type="button"
+            key={attempt.attemptNo}
+            onClick={() => setSelectedAttemptNo(attempt.attemptNo)}
+          >
             <strong>Lần {attempt.attemptNo}</strong>
-            <span>Điểm: {attempt.score}</span>
-            <span>Thời gian: {attempt.duration}</span>
-            <span>Trạng thái: {attempt.status}</span>
-            <p>Nộp lúc: {attempt.submittedAt}</p>
-            <AttemptWrongItems items={attempt.wrongItems || []} />
-          </div>
+            <span>Điểm {attempt.score}</span>
+          </button>
         ))}
       </div>
+      {selectedAttempt && (
+        <div className="student-attempt-detail">
+          <div className="attempt-summary-grid">
+            <div className="attempt-summary-card"><span>Lần làm</span><strong>{selectedAttempt.attemptNo}</strong></div>
+            <div className="attempt-summary-card"><span>Điểm</span><strong>{selectedAttempt.score}</strong></div>
+            <div className="attempt-summary-card"><span>Thời gian</span><strong>{selectedAttempt.duration}</strong></div>
+            <div className="attempt-summary-card"><span>Trạng thái</span><strong>{selectedAttempt.status}</strong></div>
+            <div className="attempt-summary-card attempt-summary-wide"><span>Nộp lúc</span><strong>{selectedAttempt.submittedAt}</strong></div>
+          </div>
+          <div className="wrong-list">
+            <h3>Câu sai trong lần {selectedAttempt.attemptNo}</h3>
+            <AttemptWrongItems items={selectedAttempt.wrongItems || []} />
+          </div>
+        </div>
+      )}
     </>
   );
 }

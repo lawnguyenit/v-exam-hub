@@ -7,9 +7,8 @@ export function RoleSelect() {
       <section className="login-box role-box">
         <Brand />
         <div className="login-copy">
-          <p className="eyebrow">Tài khoản do trường cấp</p>
+          <p className="eyebrow">Tài khoản do admin cấp</p>
           <h1>Chọn tư cách đăng nhập</h1>
-          <p>Không mở đăng ký tự do để tránh lạm dụng điểm và nhầm quyền truy cập.</p>
         </div>
         <nav className="login-bars" aria-label="Vai trò đăng nhập">
           <Link className="login-bar teacher" to="/login/teacher">

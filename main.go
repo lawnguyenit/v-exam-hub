@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -80,6 +81,60 @@ func main() {
 	})
 	mux.HandleFunc("/api/teacher/exams/", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Path[len("/api/teacher/exams/"):]
+		if examID, ok := strings.CutSuffix(id, "/access-code"); ok {
+			if r.Method != http.MethodPost {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			result, err := teacherdata.GenerateAccessCode(r.Context(), db, examID)
+			if err != nil {
+				http.Error(w, "Khong tao duoc ma truy cap: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, result)
+			return
+		}
+		if examID, ok := strings.CutSuffix(id, "/snapshot"); ok {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			snapshot, err := teacherdata.LiveSnapshot(r.Context(), db, examID)
+			if err != nil {
+				http.Error(w, "Khong tai duoc snapshot phong thi: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, snapshot)
+			return
+		}
+		if examID, ok := strings.CutSuffix(id, "/export"); ok {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			content, filename, err := teacherdata.ExportExamScoresXLSX(r.Context(), db, examID)
+			if err != nil {
+				http.Error(w, "Khong export duoc bang diem: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+			w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+			w.Header().Set("Cache-Control", "no-store")
+			_, _ = w.Write(content)
+			return
+		}
+		if r.Method == http.MethodDelete {
+			if err := teacherdata.DeleteExam(r.Context(), db, id); err != nil {
+				http.Error(w, "Không xoá được bài thi: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			writeJSON(w, map[string]any{"ok": true})
+			return
+		}
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
 		exam, ok, err := teacherdata.ExamDetailByID(r.Context(), db, id)
 		if err != nil {
 			http.Error(w, "Không tải được chi tiết bài thi: "+err.Error(), http.StatusBadRequest)
@@ -92,9 +147,13 @@ func main() {
 		writeJSON(w, exam)
 	})
 	mux.HandleFunc("/api/teacher/profile", handleTeacherProfileUpdate(db))
+	mux.HandleFunc("/api/teacher/question-bank", handleTeacherQuestionBank(db))
+	mux.HandleFunc("/api/teacher/exams/create", handleTeacherExamCreate(db))
 	mux.HandleFunc("/api/teacher/import/parse", handleTeacherImportParse(db))
 	mux.HandleFunc("/api/teacher/import/items/save", handleTeacherImportItemSave(db))
+	mux.HandleFunc("/api/teacher/import/items/delete", handleTeacherImportItemDelete(db))
 	mux.HandleFunc("/api/teacher/import/approve-pass", handleTeacherImportApprovePass(db))
+	mux.HandleFunc("/api/teacher/import/assets/", handleTeacherImportAsset(db))
 	mux.HandleFunc("/api/teacher/classes", handleTeacherClasses(db))
 	mux.HandleFunc("/api/teacher/classes/import-students", handleTeacherClassStudentImport(db))
 	mux.HandleFunc("/api/teacher/students/password", handleTeacherStudentPasswordUpdate(db))
@@ -227,6 +286,41 @@ func handleTeacherProfileUpdate(db *pgxpool.Pool) http.HandlerFunc {
 	}
 }
 
+func handleTeacherQuestionBank(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		items, err := teacherdata.QuestionBank(r.Context(), db)
+		if err != nil {
+			http.Error(w, "Không tải được ngân hàng câu hỏi: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, items)
+	}
+}
+
+func handleTeacherExamCreate(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload teacherdata.ExamCreateRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Không đọc được cấu hình bài kiểm tra", http.StatusBadRequest)
+			return
+		}
+		result, err := teacherdata.CreateExam(r.Context(), db, payload)
+		if err != nil {
+			http.Error(w, "Không tạo được bài kiểm tra: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, result)
+	}
+}
+
 func handleAuthLogin(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -264,6 +358,29 @@ func handleTeacherImportItemSave(db *pgxpool.Pool) http.HandlerFunc {
 		}
 		if err := importdata.UpdateImportItem(r.Context(), db, payload.ImportBatchID, payload.Question); err != nil {
 			http.Error(w, "Không lưu được câu hỏi: "+err.Error(), http.StatusBadRequest)
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true})
+	}
+}
+
+func handleTeacherImportItemDelete(db *pgxpool.Pool) http.HandlerFunc {
+	type requestBody struct {
+		ImportBatchID int64 `json:"importBatchId"`
+		ImportItemID  int64 `json:"importItemId"`
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload requestBody
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Không đọc được câu cần xoá", http.StatusBadRequest)
+			return
+		}
+		if err := importdata.RejectImportItem(r.Context(), db, payload.ImportBatchID, payload.ImportItemID); err != nil {
+			http.Error(w, "Không xoá được câu khỏi batch: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, map[string]any{"ok": true})
@@ -392,8 +509,98 @@ func connectDB(ctx context.Context) (*pgxpool.Pool, error) {
 		db.Close()
 		return nil, err
 	}
+	if err := ensureDatabaseCompatibility(ctx, db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	log.Println("Database connected")
 	return db, nil
+}
+
+func ensureDatabaseCompatibility(ctx context.Context, db *pgxpool.Pool) error {
+	if _, err := db.Exec(ctx, `ALTER TYPE exam_mode_enum ADD VALUE IF NOT EXISTS 'attendance'`); err != nil {
+		return err
+	}
+	_, err := db.Exec(ctx, `
+		DO $$ BEGIN
+			CREATE TYPE attachment_target_enum AS ENUM ('question_body', 'option', 'explanation', 'unknown');
+		EXCEPTION WHEN duplicate_object THEN NULL;
+		END $$;
+		ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_positive;
+		ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_non_negative;
+		ALTER TABLE exams ADD CONSTRAINT ck_exam_attempts_non_negative CHECK (max_attempts_per_student >= 0);
+		CREATE TABLE IF NOT EXISTS import_item_assets (
+			id BIGSERIAL PRIMARY KEY,
+			batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+			import_item_id BIGINT REFERENCES import_items(id) ON DELETE SET NULL,
+			target attachment_target_enum NOT NULL DEFAULT 'unknown',
+			option_label VARCHAR(10),
+			file_url TEXT NOT NULL,
+			mime_type VARCHAR(100),
+			page_number INT,
+			display_order INT NOT NULL DEFAULT 0,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);
+		CREATE INDEX IF NOT EXISTS idx_import_item_assets_batch_order ON import_item_assets(batch_id, import_item_id, display_order);
+	`)
+	return err
+}
+
+func handleTeacherImportAsset(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		trimmed := strings.TrimPrefix(r.URL.Path, "/api/teacher/import/assets/")
+		parts := strings.Split(strings.Trim(trimmed, "/"), "/")
+		if len(parts) != 2 {
+			http.NotFound(w, r)
+			return
+		}
+		batchID, err := strconv.ParseInt(parts[0], 10, 64)
+		if err != nil || batchID <= 0 {
+			http.NotFound(w, r)
+			return
+		}
+		displayOrder, err := strconv.Atoi(parts[1])
+		if err != nil || displayOrder <= 0 {
+			http.NotFound(w, r)
+			return
+		}
+
+		var fileURL, mimeType string
+		err = db.QueryRow(r.Context(), `
+			SELECT file_url, COALESCE(mime_type, 'application/octet-stream')
+			FROM import_item_assets
+			WHERE batch_id = $1 AND display_order = $2
+			ORDER BY id
+			LIMIT 1
+		`, batchID, displayOrder).Scan(&fileURL, &mimeType)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		cleanPath := filepath.Clean(filepath.FromSlash(fileURL))
+		absPath, err := filepath.Abs(cleanPath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		importRoot, err := filepath.Abs(filepath.Join("data", "imports"))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		if absPath != importRoot && !strings.HasPrefix(absPath, importRoot+string(os.PathSeparator)) {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", mimeType)
+		w.Header().Set("Cache-Control", "private, max-age=3600")
+		http.ServeFile(w, r, absPath)
+	}
 }
 
 func handleTeacherImportParse(db *pgxpool.Pool) http.HandlerFunc {
@@ -420,7 +627,7 @@ func handleTeacherImportParse(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		if err := importdata.SaveImport(r.Context(), db, &result); err != nil {
+		if err := importdata.SaveImport(r.Context(), db, &result, r.FormValue("account")); err != nil {
 			http.Error(w, "Không lưu được import vào database: "+err.Error(), http.StatusInternalServerError)
 			return
 		}

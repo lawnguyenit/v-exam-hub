@@ -63,6 +63,31 @@
   color: var(--muted);
 }
 
+.teacher-account-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.logout-btn {
+  min-height: 40px;
+  border: 1px solid rgba(201, 76, 76, 0.34);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #8a3a3a;
+  padding: 8px 12px;
+  font: inherit;
+  font-weight: 800;
+}
+
+.logout-btn:hover,
+.logout-btn:focus-visible {
+  border-color: #b74343;
+  background: #fff6f6;
+  outline: none;
+}
+
 .avatar {
   display: grid;
   width: 40px;
@@ -477,6 +502,36 @@
   padding: 24px;
 }
 
+.teacher-confirm-modal {
+  display: grid;
+  width: min(520px, 100%);
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 22px 80px rgba(23, 33, 27, 0.24);
+  padding: 24px;
+}
+
+.teacher-confirm-modal h2,
+.teacher-confirm-modal p {
+  margin: 0;
+}
+
+.teacher-confirm-modal p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.primary-btn.danger {
+  background: #b74343;
+}
+
+.primary-btn.danger:hover,
+.primary-btn.danger:focus-visible {
+  background: #963737;
+}
+
 .teacher-profile-modal h2 {
   margin-top: 4px;
 }
@@ -522,6 +577,19 @@
   display: grid;
   gap: 6px;
   min-width: 240px;
+}
+
+.detail-actions {
+  display: grid;
+  gap: 10px;
+  justify-items: end;
+}
+
+.detail-action-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .metric-grid {
@@ -644,6 +712,87 @@
   font-weight: 700;
 }
 
+.student-detail-meta-bright span {
+  border-color: #b8d6c4;
+  background: #eef7f1;
+  color: var(--green-dark);
+  font-weight: 800;
+}
+
+.attempt-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 12px;
+}
+
+.attempt-tab {
+  display: grid;
+  gap: 3px;
+  min-width: 108px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 10px 12px;
+  text-align: left;
+  font: inherit;
+}
+
+.attempt-tab span {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.attempt-tab.active,
+.attempt-tab:hover,
+.attempt-tab:focus-visible {
+  border-color: var(--green);
+  background: var(--soft);
+  outline: none;
+}
+
+.attempt-tab.active {
+  box-shadow: inset 0 0 0 1px var(--green);
+}
+
+.student-attempt-detail {
+  display: grid;
+  gap: 14px;
+}
+
+.attempt-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: 10px;
+}
+
+.attempt-summary-card {
+  display: grid;
+  gap: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.attempt-summary-card span {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.attempt-summary-card strong {
+  color: var(--ink);
+  font-size: 1.25rem;
+}
+
+.attempt-summary-wide {
+  grid-column: span 2;
+}
+
 .wrong-list {
   display: grid;
   gap: 10px;
@@ -720,6 +869,78 @@
   margin-top: 6px;
 }
 
+.snapshot-modal-content {
+  display: grid;
+  gap: 14px;
+}
+
+.snapshot-modal-content h2 {
+  margin: 0;
+}
+
+.access-code-copy {
+  display: grid;
+  gap: 6px;
+  width: 100%;
+  border: 1px solid var(--green);
+  border-radius: 8px;
+  background: var(--soft);
+  color: var(--green-dark);
+  padding: 16px;
+  text-align: left;
+  font: inherit;
+}
+
+.access-code-copy strong {
+  color: var(--ink);
+  font-size: 2rem;
+  letter-spacing: 0.08em;
+}
+
+.access-code-copy span {
+  color: var(--green-dark);
+  font-weight: 800;
+}
+
+.access-code-copy:hover,
+.access-code-copy:focus-visible {
+  border-color: var(--green-dark);
+  background: #e3f2e8;
+  outline: none;
+}
+
+.snapshot-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 10px;
+}
+
+.snapshot-metrics span,
+.snapshot-list article {
+  display: grid;
+  gap: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 12px;
+}
+
+.snapshot-metrics strong {
+  font-size: 1.6rem;
+}
+
+.snapshot-list {
+  display: grid;
+  max-height: 360px;
+  overflow: auto;
+  gap: 8px;
+}
+
+.snapshot-list span,
+.snapshot-list small {
+  color: var(--muted);
+}
+
 .modal-close {
   position: absolute;
   top: 12px;
@@ -748,9 +969,15 @@
   text-align: left;
 }
 
-button.teacher-exam-card {
+.teacher-exam-main {
   width: 100%;
   color: var(--ink);
+  display: grid;
+  gap: 10px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 0;
 }
 
 .teacher-exam-card.active,
@@ -762,6 +989,18 @@ button.teacher-exam-card {
 
 .teacher-exam-card h3 {
   margin: 0;
+}
+
+.exam-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+}
+
+.table-action.danger {
+  border-color: rgba(201, 76, 76, 0.38);
+  color: #8a3a3a;
 }
 
 .exam-badges {
@@ -803,6 +1042,11 @@ button.teacher-exam-card {
 .type-official {
   border-color: #6b7280;
   background: #f3f5f4;
+}
+
+.type-attendance {
+  border-color: #6f55a0;
+  background: #f1eef8;
 }
 
 .type-default {

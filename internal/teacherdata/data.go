@@ -1,15 +1,21 @@
 package teacherdata
 
 import (
+	"bytes"
 	"context"
+	crand "crypto/rand"
+	"database/sql"
 	"fmt"
 	"math"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/xuri/excelize/v2"
 )
 
 type Dashboard struct {
@@ -46,18 +52,32 @@ type ExamSummary struct {
 }
 
 type ExamDetail struct {
-	ID          string                     `json:"id"`
-	Title       string                     `json:"title"`
-	Status      string                     `json:"status"`
-	ExamType    string                     `json:"examType"`
-	TargetClass string                     `json:"targetClass"`
-	StartTime   string                     `json:"startTime"`
-	Average     float64                    `json:"average"`
-	Submitted   int                        `json:"submitted"`
-	Total       int                        `json:"total"`
-	Metrics     []Metric                   `json:"metrics"`
-	Tables      map[string]StatisticsTable `json:"tables"`
-	Students    []StudentAttemptDetail     `json:"students"`
+	ID                    string                     `json:"id"`
+	Title                 string                     `json:"title"`
+	Description           string                     `json:"description"`
+	Status                string                     `json:"status"`
+	StatusCode            string                     `json:"statusCode"`
+	ExamType              string                     `json:"examType"`
+	ExamMode              string                     `json:"examMode"`
+	TargetClass           string                     `json:"targetClass"`
+	ClassID               int64                      `json:"classId"`
+	StartTime             string                     `json:"startTime"`
+	StartValue            string                     `json:"startValue"`
+	DurationMinutes       int                        `json:"durationMinutes"`
+	MaxAttemptsPerStudent int                        `json:"maxAttemptsPerStudent"`
+	ShuffleQuestions      bool                       `json:"shuffleQuestions"`
+	ShuffleOptions        bool                       `json:"shuffleOptions"`
+	ShowResultImmediately bool                       `json:"showResultImmediately"`
+	AllowReview           bool                       `json:"allowReview"`
+	QuestionSourceID      int64                      `json:"questionSourceId"`
+	QuestionCount         int                        `json:"questionCount"`
+	CanEdit               bool                       `json:"canEdit"`
+	Average               float64                    `json:"average"`
+	Submitted             int                        `json:"submitted"`
+	Total                 int                        `json:"total"`
+	Metrics               []Metric                   `json:"metrics"`
+	Tables                map[string]StatisticsTable `json:"tables"`
+	Students              []StudentAttemptDetail     `json:"students"`
 }
 
 type Metric struct {
@@ -99,6 +119,66 @@ type WrongItem struct {
 	Note     string `json:"note"`
 }
 
+type QuestionBankItem struct {
+	ID            int64  `json:"id"`
+	Title         string `json:"title"`
+	SourceName    string `json:"sourceName"`
+	QuestionCount int    `json:"questionCount"`
+	CreatedAt     string `json:"createdAt"`
+}
+
+type ExamCreateRequest struct {
+	ExamID                string  `json:"examId"`
+	CreatedBy             string  `json:"createdBy"`
+	Title                 string  `json:"title"`
+	Description           string  `json:"description"`
+	ExamMode              string  `json:"examMode"`
+	ClassID               int64   `json:"classId"`
+	StartTime             string  `json:"startTime"`
+	DurationMinutes       int     `json:"durationMinutes"`
+	MaxAttemptsPerStudent int     `json:"maxAttemptsPerStudent"`
+	ShuffleQuestions      bool    `json:"shuffleQuestions"`
+	ShuffleOptions        bool    `json:"shuffleOptions"`
+	ShowResultImmediately bool    `json:"showResultImmediately"`
+	AllowReview           bool    `json:"allowReview"`
+	QuestionIDs           []int64 `json:"questionIds"`
+	QuestionSourceID      int64   `json:"questionSourceId"`
+	QuestionCount         int     `json:"questionCount"`
+}
+
+type ExamCreateResult struct {
+	ID            string `json:"id"`
+	QuestionCount int    `json:"questionCount"`
+	Status        string `json:"status"`
+}
+
+type AccessCodeResult struct {
+	ExamID         string `json:"examId"`
+	Code           string `json:"code"`
+	ExpiresAt      string `json:"expiresAt"`
+	ExpiresAtUnix  int64  `json:"expiresAtUnix"`
+	DurationMinute int    `json:"durationMinute"`
+}
+
+type ExamLiveSnapshot struct {
+	ExamID      string            `json:"examId"`
+	GeneratedAt string            `json:"generatedAt"`
+	Total       int               `json:"total"`
+	InProgress  int               `json:"inProgress"`
+	Submitted   int               `json:"submitted"`
+	NotStarted  int               `json:"notStarted"`
+	Rows        []LiveSnapshotRow `json:"rows"`
+}
+
+type LiveSnapshotRow struct {
+	StudentCode  string `json:"studentCode"`
+	Name         string `json:"name"`
+	Status       string `json:"status"`
+	AttemptCount int    `json:"attemptCount"`
+	BestScore    string `json:"bestScore"`
+	LastSeen     string `json:"lastSeen"`
+}
+
 type examBase struct {
 	ID          int64
 	Title       string
@@ -112,6 +192,18 @@ type examBase struct {
 	Average     float64
 	Highest     float64
 	AttemptCnt  int
+}
+
+type examConfig struct {
+	Description           string
+	ClassID               int64
+	DurationMinutes       int
+	MaxAttemptsPerStudent int
+	ShuffleQuestions      bool
+	ShuffleOptions        bool
+	ShowResultImmediately bool
+	AllowReview           bool
+	QuestionSourceID      int64
 }
 
 func DashboardFor(ctx context.Context, db *pgxpool.Pool, account string) (Dashboard, error) {
@@ -148,6 +240,550 @@ func UpdateProfile(ctx context.Context, db *pgxpool.Pool, payload ProfileUpdateR
 	return profileFor(ctx, db, payload.Username)
 }
 
+func QuestionBank(ctx context.Context, db *pgxpool.Pool) ([]QuestionBankItem, error) {
+	rows, err := db.Query(ctx, `
+		SELECT ib.id,
+			COALESCE(NULLIF(ib.original_filename, ''), NULLIF(ib.source_name, ''), 'Bộ đề #' || ib.id::text),
+			COALESCE(NULLIF(ib.source_name, ''), NULLIF(ib.original_filename, ''), ''),
+			COUNT(qb.id)::int,
+			MAX(qb.created_at)
+		FROM import_batches ib
+		JOIN import_items ii ON ii.batch_id = ib.id
+		JOIN question_bank qb ON qb.import_item_id = ii.id AND qb.question_status = 'active'
+		GROUP BY ib.id
+		ORDER BY MAX(qb.created_at) DESC, ib.id DESC
+		LIMIT 200
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []QuestionBankItem{}
+	for rows.Next() {
+		var item QuestionBankItem
+		var createdAt time.Time
+		if err := rows.Scan(&item.ID, &item.Title, &item.SourceName, &item.QuestionCount, &createdAt); err != nil {
+			return nil, err
+		}
+		item.CreatedAt = createdAt.Local().Format("02/01/2006 15:04")
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func CreateExam(ctx context.Context, db *pgxpool.Pool, payload ExamCreateRequest) (ExamCreateResult, error) {
+	if strings.TrimSpace(payload.ExamID) != "" {
+		return updateExam(ctx, db, payload)
+	}
+	title := strings.TrimSpace(payload.Title)
+	if title == "" {
+		return ExamCreateResult{}, fmt.Errorf("thiếu tên bài kiểm tra")
+	}
+	questionIDs := uniquePositiveIDs(payload.QuestionIDs)
+	if len(questionIDs) == 0 && payload.QuestionSourceID <= 0 {
+		return ExamCreateResult{}, fmt.Errorf("cần chọn một bộ đề cương")
+	}
+	if payload.ClassID <= 0 {
+		return ExamCreateResult{}, fmt.Errorf("cần chọn lớp áp dụng")
+	}
+	durationMinutes := payload.DurationMinutes
+	if durationMinutes <= 0 {
+		durationMinutes = 45
+	}
+	maxAttempts := payload.MaxAttemptsPerStudent
+	if maxAttempts < 0 {
+		maxAttempts = 1
+	}
+	mode := examModeValue(payload.ExamMode)
+	start, err := parseCreateStart(payload.StartTime)
+	if err != nil {
+		return ExamCreateResult{}, err
+	}
+	status := "open"
+	if start == nil {
+		status = "draft"
+	} else if start.After(time.Now()) {
+		status = "scheduled"
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ExamCreateResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var creatorID any
+	if strings.TrimSpace(payload.CreatedBy) != "" {
+		var id int64
+		if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE username = $1`, strings.TrimSpace(payload.CreatedBy)).Scan(&id); err == nil {
+			creatorID = id
+		}
+	}
+
+	if len(questionIDs) == 0 {
+		questionIDs, err = questionIDsFromSource(ctx, tx, payload.QuestionSourceID, payload.QuestionCount, payload.ShuffleQuestions, creatorID)
+		if err != nil {
+			return ExamCreateResult{}, err
+		}
+	}
+	if len(questionIDs) == 0 {
+		return ExamCreateResult{}, fmt.Errorf("bộ đề cương chưa có câu hỏi active")
+	}
+
+	var availableCount int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM question_bank WHERE id = ANY($1) AND question_status = 'active'`, questionIDs).Scan(&availableCount); err != nil {
+		return ExamCreateResult{}, err
+	}
+	if availableCount != len(questionIDs) {
+		return ExamCreateResult{}, fmt.Errorf("một số câu hỏi đã chọn không còn hợp lệ trong ngân hàng")
+	}
+
+	var examID int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO exams (
+			created_by_user_id, title, description, exam_mode, duration_seconds,
+			total_points, exam_status, max_attempts_per_student,
+			shuffle_questions, shuffle_options, show_result_immediately, allow_review,
+			start_time, published_at
+		)
+		VALUES ($1, $2, NULLIF($3, ''), $4::exam_mode_enum, $5, $6, $7::exam_status_enum, $8, $9, $10, $11, $12, $13, CASE WHEN $7 IN ('open', 'scheduled') THEN NOW() ELSE NULL END)
+		RETURNING id
+	`, creatorID, title, strings.TrimSpace(payload.Description), mode, durationMinutes*60, float64(len(questionIDs)), status, maxAttempts, payload.ShuffleQuestions, payload.ShuffleOptions, payload.ShowResultImmediately, payload.AllowReview, start).Scan(&examID); err != nil {
+		return ExamCreateResult{}, err
+	}
+
+	for index, questionID := range questionIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO exam_questions (exam_id, question_id, question_order, points_override)
+			VALUES ($1, $2, $3, 1)
+		`, examID, questionID, index+1); err != nil {
+			return ExamCreateResult{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO exam_targets (exam_id, class_id)
+		VALUES ($1, $2)
+		ON CONFLICT DO NOTHING
+	`, examID, payload.ClassID); err != nil {
+		return ExamCreateResult{}, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return ExamCreateResult{}, err
+	}
+	return ExamCreateResult{ID: strconv.FormatInt(examID, 10), QuestionCount: len(questionIDs), Status: statusLabel(status)}, nil
+}
+
+func updateExam(ctx context.Context, db *pgxpool.Pool, payload ExamCreateRequest) (ExamCreateResult, error) {
+	examID, err := strconv.ParseInt(strings.TrimSpace(payload.ExamID), 10, 64)
+	if err != nil || examID <= 0 {
+		return ExamCreateResult{}, fmt.Errorf("mã bài kiểm tra không hợp lệ")
+	}
+	title := strings.TrimSpace(payload.Title)
+	if title == "" {
+		return ExamCreateResult{}, fmt.Errorf("thiếu tên bài kiểm tra")
+	}
+	if payload.ClassID <= 0 {
+		return ExamCreateResult{}, fmt.Errorf("cần chọn lớp áp dụng")
+	}
+	durationMinutes := payload.DurationMinutes
+	if durationMinutes <= 0 {
+		durationMinutes = 45
+	}
+	maxAttempts := payload.MaxAttemptsPerStudent
+	if maxAttempts < 0 {
+		maxAttempts = 1
+	}
+	start, err := parseCreateStart(payload.StartTime)
+	if err != nil {
+		return ExamCreateResult{}, err
+	}
+	status := "open"
+	if start == nil {
+		status = "draft"
+	} else if start.After(time.Now()) {
+		status = "scheduled"
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return ExamCreateResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	var attemptCount int
+	if err := tx.QueryRow(ctx, `SELECT COUNT(*) FROM exam_attempts WHERE exam_id = $1`, examID).Scan(&attemptCount); err != nil {
+		return ExamCreateResult{}, err
+	}
+	var lockedSourceID sql.NullInt64
+	if attemptCount > 0 {
+		if err := tx.QueryRow(ctx, `
+			SELECT MIN(ii.batch_id)
+			FROM exam_questions eq
+			JOIN question_bank qb ON qb.id = eq.question_id
+			JOIN import_items ii ON ii.id = qb.import_item_id
+			WHERE eq.exam_id = $1
+		`, examID).Scan(&lockedSourceID); err != nil {
+			return ExamCreateResult{}, err
+		}
+		if payload.QuestionSourceID <= 0 && lockedSourceID.Valid {
+			payload.QuestionSourceID = lockedSourceID.Int64
+		}
+		if lockedSourceID.Valid && payload.QuestionSourceID > 0 && payload.QuestionSourceID != lockedSourceID.Int64 {
+			return ExamCreateResult{}, fmt.Errorf("bai da co luot lam nen khong the doi nguon de cuong; chi duoc doi so cau va cau hinh phat bai")
+		}
+	}
+
+	questionIDs := uniquePositiveIDs(payload.QuestionIDs)
+	if len(questionIDs) == 0 {
+		questionIDs, err = questionIDsFromSource(ctx, tx, payload.QuestionSourceID, payload.QuestionCount, payload.ShuffleQuestions, nil)
+		if err != nil {
+			return ExamCreateResult{}, err
+		}
+	}
+	if len(questionIDs) == 0 {
+		return ExamCreateResult{}, fmt.Errorf("bộ đề cương chưa có câu hỏi active")
+	}
+
+	commandTag, err := tx.Exec(ctx, `
+		UPDATE exams
+		SET title = $2,
+			description = NULLIF($3, ''),
+			exam_mode = $4::exam_mode_enum,
+			duration_seconds = $5,
+			total_points = $6,
+			exam_status = $7::exam_status_enum,
+			max_attempts_per_student = $8,
+			shuffle_questions = $9,
+			shuffle_options = $10,
+			show_result_immediately = $11,
+			allow_review = $12,
+			start_time = $13,
+			published_at = CASE WHEN $7 IN ('open', 'scheduled') THEN COALESCE(published_at, NOW()) ELSE published_at END,
+			updated_at = NOW()
+		WHERE id = $1
+	`, examID, title, strings.TrimSpace(payload.Description), examModeValue(payload.ExamMode), durationMinutes*60, float64(len(questionIDs)), status, maxAttempts, payload.ShuffleQuestions, payload.ShuffleOptions, payload.ShowResultImmediately, payload.AllowReview, start)
+	if err != nil {
+		return ExamCreateResult{}, err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return ExamCreateResult{}, fmt.Errorf("không tìm thấy bài kiểm tra")
+	}
+
+	if attemptCount == 0 {
+		if _, err := tx.Exec(ctx, `DELETE FROM exam_versions WHERE exam_id = $1`, examID); err != nil {
+			return ExamCreateResult{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM exam_questions WHERE exam_id = $1`, examID); err != nil {
+		return ExamCreateResult{}, err
+	}
+	for index, questionID := range questionIDs {
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO exam_questions (exam_id, question_id, question_order, points_override)
+			VALUES ($1, $2, $3, 1)
+		`, examID, questionID, index+1); err != nil {
+			return ExamCreateResult{}, err
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM exam_targets WHERE exam_id = $1`, examID); err != nil {
+		return ExamCreateResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO exam_targets (exam_id, class_id)
+		VALUES ($1, $2)
+	`, examID, payload.ClassID); err != nil {
+		return ExamCreateResult{}, err
+	}
+	if attemptCount > 0 {
+		if _, err := createExamVersionSnapshot(ctx, tx, examID); err != nil {
+			return ExamCreateResult{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return ExamCreateResult{}, err
+	}
+	return ExamCreateResult{ID: strconv.FormatInt(examID, 10), QuestionCount: len(questionIDs), Status: statusLabel(status)}, nil
+}
+
+func createExamVersionSnapshot(ctx context.Context, tx pgx.Tx, examID int64) (int64, error) {
+	var versionID int64
+	if err := tx.QueryRow(ctx, `
+		INSERT INTO exam_versions (
+			exam_id, version_no, title_snapshot, description_snapshot,
+			exam_mode_snapshot, duration_seconds_snapshot, total_points_snapshot,
+			exam_status_snapshot, shuffle_questions_snapshot, shuffle_options_snapshot,
+			show_result_immediately_snapshot, allow_review_snapshot,
+			start_time_snapshot, end_time_snapshot, published_by_user_id
+		)
+		SELECT id,
+			COALESCE((SELECT MAX(version_no) FROM exam_versions WHERE exam_id = exams.id), 0) + 1,
+			title, description, exam_mode, duration_seconds,
+			CASE WHEN total_points > 0 THEN total_points ELSE GREATEST((SELECT COUNT(*) FROM exam_questions WHERE exam_id = exams.id), 1) END,
+			exam_status, shuffle_questions, shuffle_options,
+			show_result_immediately, allow_review, start_time, end_time, created_by_user_id
+		FROM exams
+		WHERE id = $1
+		RETURNING id
+	`, examID).Scan(&versionID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO exam_version_questions (
+			exam_version_id, source_question_id, question_order,
+			question_type_snapshot, content_snapshot, explanation_snapshot, points_snapshot
+		)
+		SELECT $1, qb.id, eq.question_order, qb.question_type, qb.content, qb.explanation,
+			COALESCE(eq.points_override, 1)
+		FROM exam_questions eq
+		JOIN question_bank qb ON qb.id = eq.question_id
+		WHERE eq.exam_id = $2
+		ORDER BY eq.question_order
+	`, versionID, examID); err != nil {
+		return 0, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO exam_version_question_options (
+			exam_version_question_id, option_order, content_snapshot, is_correct_snapshot
+		)
+		SELECT evq.id, qbo.option_order, qbo.content, qbo.is_correct
+		FROM exam_version_questions evq
+		JOIN question_bank_options qbo ON qbo.question_id = evq.source_question_id
+		WHERE evq.exam_version_id = $1
+		ORDER BY evq.question_order, qbo.option_order
+	`, versionID); err != nil {
+		return 0, err
+	}
+	return versionID, nil
+}
+
+func DeleteExam(ctx context.Context, db *pgxpool.Pool, id string) error {
+	examID, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil || examID <= 0 {
+		return fmt.Errorf("mã bài kiểm tra không hợp lệ")
+	}
+	var attemptCount int
+	if err := db.QueryRow(ctx, `SELECT COUNT(*) FROM exam_attempts WHERE exam_id = $1`, examID).Scan(&attemptCount); err != nil {
+		return err
+	}
+	if attemptCount > 0 {
+		commandTag, err := db.Exec(ctx, `
+			UPDATE exams
+			SET exam_status = 'archived', updated_at = NOW()
+			WHERE id = $1
+		`, examID)
+		if err != nil {
+			return err
+		}
+		if commandTag.RowsAffected() == 0 {
+			return fmt.Errorf("không tìm thấy bài kiểm tra")
+		}
+		return nil
+	}
+	commandTag, err := db.Exec(ctx, `DELETE FROM exams WHERE id = $1`, examID)
+	if err != nil {
+		return err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return fmt.Errorf("không tìm thấy bài kiểm tra")
+	}
+	return nil
+}
+
+func GenerateAccessCode(ctx context.Context, db *pgxpool.Pool, id string) (AccessCodeResult, error) {
+	examID, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil || examID <= 0 {
+		return AccessCodeResult{}, fmt.Errorf("ma bai kiem tra khong hop le")
+	}
+	code, err := randomAccessCode(6)
+	if err != nil {
+		return AccessCodeResult{}, err
+	}
+	expiresAt := time.Now().Add(5 * time.Minute)
+	commandTag, err := db.Exec(ctx, `
+		UPDATE exams
+		SET access_code = $2, updated_at = NOW()
+		WHERE id = $1 AND exam_mode IN ('official', 'attendance')
+	`, examID, fmt.Sprintf("%s:%d", code, expiresAt.Unix()))
+	if err != nil {
+		return AccessCodeResult{}, err
+	}
+	if commandTag.RowsAffected() == 0 {
+		return AccessCodeResult{}, fmt.Errorf("chi bai chinh thuc hoac diem danh moi can ma truy cap")
+	}
+	return AccessCodeResult{
+		ExamID:         strconv.FormatInt(examID, 10),
+		Code:           code,
+		ExpiresAt:      expiresAt.Local().Format("02/01/2006 15:04:05"),
+		ExpiresAtUnix:  expiresAt.Unix(),
+		DurationMinute: 5,
+	}, nil
+}
+
+func ExportExamScoresXLSX(ctx context.Context, db *pgxpool.Pool, id string) ([]byte, string, error) {
+	examID, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil || examID <= 0 {
+		return nil, "", fmt.Errorf("ma bai kiem tra khong hop le")
+	}
+	var title string
+	if err := db.QueryRow(ctx, `SELECT title FROM exams WHERE id = $1`, examID).Scan(&title); err != nil {
+		return nil, "", err
+	}
+
+	rows, err := db.Query(ctx, `
+		WITH attempts AS (
+			SELECT ea.exam_id, ea.student_user_id,
+				COUNT(*)::int AS attempt_count,
+				COALESCE(MAX(ea.score_final) FILTER (WHERE ea.attempt_status IN ('submitted', 'expired')), 0)::float8 AS best_score,
+				MAX(COALESCE(ea.submitted_at, ea.client_last_seen_at, ea.started_at)) AS last_seen,
+				BOOL_OR(ea.attempt_status = 'in_progress' AND ea.end_at > NOW()) AS has_in_progress,
+				BOOL_OR(ea.attempt_status IN ('submitted', 'expired')) AS has_submitted
+			FROM exam_attempts ea
+			WHERE ea.exam_id = $1
+			GROUP BY ea.exam_id, ea.student_user_id
+		)
+		SELECT sp.student_code,
+			sp.full_name,
+			u.username,
+			COALESCE(c.class_code, ''),
+			COALESCE(a.attempt_count, 0),
+			COALESCE(a.best_score, 0)::float8,
+			CASE
+				WHEN COALESCE(a.has_in_progress, FALSE) THEN 'Đang làm'
+				WHEN COALESCE(a.has_submitted, FALSE) THEN 'Đã làm'
+				ELSE 'Chưa làm'
+			END,
+			a.last_seen
+		FROM exams e
+		JOIN exam_targets et ON et.exam_id = e.id
+		JOIN classes c ON c.id = et.class_id
+		JOIN class_members cm ON cm.class_id = c.id AND cm.member_status = 'active'
+		JOIN users u ON u.id = cm.student_user_id
+		JOIN student_profiles sp ON sp.user_id = u.id
+		LEFT JOIN attempts a ON a.student_user_id = u.id AND a.exam_id = e.id
+		WHERE e.id = $1
+		ORDER BY c.class_code, sp.student_code, sp.full_name
+	`, examID)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	file := excelize.NewFile()
+	defer file.Close()
+	sheet := "Danh sach"
+	file.SetSheetName("Sheet1", sheet)
+	headers := []string{"Mã SV", "Họ tên", "Tài khoản", "Lớp", "Trạng thái", "Số lần làm", "Điểm cao nhất", "Cập nhật gần nhất"}
+	for index, header := range headers {
+		cell, _ := excelize.CoordinatesToCellName(index+1, 1)
+		_ = file.SetCellValue(sheet, cell, header)
+	}
+	rowIndex := 2
+	for rows.Next() {
+		var studentCode, name, username, classCode, status string
+		var attemptCount int
+		var bestScore float64
+		var lastSeen *time.Time
+		if err := rows.Scan(&studentCode, &name, &username, &classCode, &attemptCount, &bestScore, &status, &lastSeen); err != nil {
+			return nil, "", err
+		}
+		values := []any{studentCode, name, username, classCode, status, attemptCount, scoreText(bestScore), timeText(lastSeen)}
+		for col, value := range values {
+			cell, _ := excelize.CoordinatesToCellName(col+1, rowIndex)
+			_ = file.SetCellValue(sheet, cell, value)
+		}
+		rowIndex++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, "", err
+	}
+	for col := 1; col <= len(headers); col++ {
+		name, _ := excelize.ColumnNumberToName(col)
+		_ = file.SetColWidth(sheet, name, name, 16)
+	}
+	var buffer bytes.Buffer
+	if err := file.Write(&buffer); err != nil {
+		return nil, "", err
+	}
+	return buffer.Bytes(), safeFilename(fmt.Sprintf("bang-diem-%s-%d.xlsx", title, examID)), nil
+}
+
+func LiveSnapshot(ctx context.Context, db *pgxpool.Pool, id string) (ExamLiveSnapshot, error) {
+	examID, err := strconv.ParseInt(strings.TrimSpace(id), 10, 64)
+	if err != nil || examID <= 0 {
+		return ExamLiveSnapshot{}, fmt.Errorf("ma bai kiem tra khong hop le")
+	}
+	rows, err := db.Query(ctx, `
+		WITH attempts AS (
+			SELECT ea.exam_id, ea.student_user_id,
+				COUNT(*)::int AS attempt_count,
+				COALESCE(MAX(ea.score_final) FILTER (WHERE ea.attempt_status IN ('submitted', 'expired')), 0)::float8 AS best_score,
+				MAX(COALESCE(ea.client_last_seen_at, ea.submitted_at, ea.started_at)) AS last_seen,
+				BOOL_OR(ea.attempt_status = 'in_progress' AND ea.end_at > NOW()) AS has_in_progress,
+				BOOL_OR(ea.attempt_status IN ('submitted', 'expired')) AS has_submitted
+			FROM exam_attempts ea
+			WHERE ea.exam_id = $1
+			GROUP BY ea.exam_id, ea.student_user_id
+		)
+		SELECT sp.student_code,
+			sp.full_name,
+			COALESCE(a.attempt_count, 0),
+			COALESCE(a.best_score, 0)::float8,
+			CASE
+				WHEN COALESCE(a.has_in_progress, FALSE) THEN 'Đang làm'
+				WHEN COALESCE(a.has_submitted, FALSE) THEN 'Đã làm'
+				ELSE 'Chưa làm'
+			END,
+			a.last_seen
+		FROM exams e
+		JOIN exam_targets et ON et.exam_id = e.id
+		JOIN class_members cm ON cm.class_id = et.class_id AND cm.member_status = 'active'
+		JOIN student_profiles sp ON sp.user_id = cm.student_user_id
+		LEFT JOIN attempts a ON a.student_user_id = cm.student_user_id AND a.exam_id = e.id
+		WHERE e.id = $1
+		ORDER BY
+			CASE
+				WHEN COALESCE(a.has_in_progress, FALSE) THEN 1
+				WHEN COALESCE(a.has_submitted, FALSE) THEN 2
+				ELSE 3
+			END,
+			sp.student_code,
+			sp.full_name
+	`, examID)
+	if err != nil {
+		return ExamLiveSnapshot{}, err
+	}
+	defer rows.Close()
+
+	snapshot := ExamLiveSnapshot{
+		ExamID:      strconv.FormatInt(examID, 10),
+		GeneratedAt: time.Now().Local().Format("02/01/2006 15:04:05"),
+		Rows:        []LiveSnapshotRow{},
+	}
+	for rows.Next() {
+		var item LiveSnapshotRow
+		var bestScore float64
+		var lastSeen *time.Time
+		if err := rows.Scan(&item.StudentCode, &item.Name, &item.AttemptCount, &bestScore, &item.Status, &lastSeen); err != nil {
+			return ExamLiveSnapshot{}, err
+		}
+		item.BestScore = scoreText(bestScore)
+		item.LastSeen = timeText(lastSeen)
+		snapshot.Rows = append(snapshot.Rows, item)
+		snapshot.Total++
+		switch item.Status {
+		case "Đang làm":
+			snapshot.InProgress++
+		case "Đã làm":
+			snapshot.Submitted++
+		default:
+			snapshot.NotStarted++
+		}
+	}
+	return snapshot, rows.Err()
+}
+
 func ExamDetailByID(ctx context.Context, db *pgxpool.Pool, id string) (ExamDetail, bool, error) {
 	examID, err := strconv.ParseInt(id, 10, 64)
 	if err != nil {
@@ -161,17 +797,35 @@ func ExamDetailByID(ctx context.Context, db *pgxpool.Pool, id string) (ExamDetai
 	if err != nil {
 		return ExamDetail{}, false, err
 	}
+	config, err := examConfigByID(ctx, db, examID)
+	if err != nil {
+		return ExamDetail{}, false, err
+	}
 	tables := buildTables(students)
 	detail := ExamDetail{
-		ID:          strconv.FormatInt(base.ID, 10),
-		Title:       base.Title,
-		Status:      statusLabel(base.Status),
-		ExamType:    modeLabel(base.Mode),
-		TargetClass: emptyDash(base.TargetClass),
-		StartTime:   formatStart(base.StartTime),
-		Average:     round1(base.Average),
-		Submitted:   base.Submitted,
-		Total:       base.Total,
+		ID:                    strconv.FormatInt(base.ID, 10),
+		Title:                 base.Title,
+		Description:           config.Description,
+		Status:                statusLabel(base.Status),
+		StatusCode:            base.Status,
+		ExamType:              modeLabel(base.Mode),
+		ExamMode:              base.Mode,
+		TargetClass:           emptyDash(base.TargetClass),
+		ClassID:               config.ClassID,
+		StartTime:             formatStart(base.StartTime),
+		StartValue:            datetimeLocal(base.StartTime),
+		DurationMinutes:       config.DurationMinutes,
+		MaxAttemptsPerStudent: config.MaxAttemptsPerStudent,
+		ShuffleQuestions:      config.ShuffleQuestions,
+		ShuffleOptions:        config.ShuffleOptions,
+		ShowResultImmediately: config.ShowResultImmediately,
+		AllowReview:           config.AllowReview,
+		QuestionSourceID:      config.QuestionSourceID,
+		QuestionCount:         base.QuestionCnt,
+		CanEdit:               base.AttemptCnt == 0,
+		Average:               round1(base.Average),
+		Submitted:             base.Submitted,
+		Total:                 base.Total,
 		Metrics: []Metric{
 			{Label: "Đã nộp", Value: fmt.Sprintf("%d/%d", base.Submitted, base.Total)},
 			{Label: "Điểm cao nhất", Value: scoreText(base.Highest)},
@@ -215,6 +869,7 @@ func examSummaries(ctx context.Context, db *pgxpool.Pool) ([]ExamSummary, error)
 		LEFT JOIN classes c ON c.id = et.class_id
 		LEFT JOIN class_members cm ON cm.class_id = c.id AND cm.member_status = 'active'
 		LEFT JOIN exam_attempts ea ON ea.exam_id = e.id
+		WHERE e.exam_status <> 'archived'
 		GROUP BY e.id
 		ORDER BY e.start_time DESC NULLS LAST, e.id DESC
 	`)
@@ -275,6 +930,46 @@ func examBaseByID(ctx context.Context, db *pgxpool.Pool, examID int64) (examBase
 		return examBase{}, false, err
 	}
 	return base, true, nil
+}
+
+func examConfigByID(ctx context.Context, db *pgxpool.Pool, examID int64) (examConfig, error) {
+	var config examConfig
+	var sourceID sql.NullInt64
+	err := db.QueryRow(ctx, `
+		SELECT COALESCE(e.description, ''),
+			COALESCE(MIN(et.class_id), 0),
+			(e.duration_seconds / 60)::int,
+			e.max_attempts_per_student,
+			e.shuffle_questions,
+			e.shuffle_options,
+			e.show_result_immediately,
+			e.allow_review,
+			MIN(ii.batch_id)
+		FROM exams e
+		LEFT JOIN exam_targets et ON et.exam_id = e.id
+		LEFT JOIN exam_questions eq ON eq.exam_id = e.id
+		LEFT JOIN question_bank qb ON qb.id = eq.question_id
+		LEFT JOIN import_items ii ON ii.id = qb.import_item_id
+		WHERE e.id = $1
+		GROUP BY e.id
+	`, examID).Scan(
+		&config.Description,
+		&config.ClassID,
+		&config.DurationMinutes,
+		&config.MaxAttemptsPerStudent,
+		&config.ShuffleQuestions,
+		&config.ShuffleOptions,
+		&config.ShowResultImmediately,
+		&config.AllowReview,
+		&sourceID,
+	)
+	if err != nil {
+		return examConfig{}, err
+	}
+	if sourceID.Valid {
+		config.QuestionSourceID = sourceID.Int64
+	}
+	return config, nil
 }
 
 func studentAttempts(ctx context.Context, db *pgxpool.Pool, examID int64, questionCount int) ([]StudentAttemptDetail, error) {
@@ -463,16 +1158,22 @@ func statusLabel(status string) string {
 		return "Đã đóng"
 	case "draft":
 		return "Bản nháp"
+	case "archived":
+		return "Đã xoá"
 	default:
 		return status
 	}
 }
 
 func modeLabel(mode string) string {
-	if mode == "official" {
+	switch mode {
+	case "official":
 		return "Chính thức"
+	case "attendance":
+		return "Điểm danh"
+	default:
+		return "Thi thử"
 	}
-	return "Thi thử"
 }
 
 func attemptStatusLabel(status string) string {
@@ -496,6 +1197,13 @@ func formatStart(value *time.Time) string {
 		return "Hôm nay " + local.Format("15:04")
 	}
 	return local.Format("02/01 - 15:04")
+}
+
+func datetimeLocal(value *time.Time) string {
+	if value == nil {
+		return ""
+	}
+	return value.Local().Format("2006-01-02T15:04")
 }
 
 func timeText(value *time.Time) string {
@@ -538,4 +1246,141 @@ func emptyDash(value string) string {
 		return "-"
 	}
 	return value
+}
+
+func uniquePositiveIDs(values []int64) []int64 {
+	seen := map[int64]bool{}
+	out := []int64{}
+	for _, value := range values {
+		if value <= 0 || seen[value] {
+			continue
+		}
+		seen[value] = true
+		out = append(out, value)
+	}
+	return out
+}
+
+func questionIDsFromSource(ctx context.Context, tx pgx.Tx, sourceID int64, requestedCount int, randomize bool, creatorID any) ([]int64, error) {
+	if sourceID <= 0 {
+		return nil, fmt.Errorf("cần chọn bộ đề cương")
+	}
+	var available int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(qb.id)::int
+		FROM import_batches ib
+		JOIN import_items ii ON ii.batch_id = ib.id
+		JOIN question_bank qb ON qb.import_item_id = ii.id AND qb.question_status = 'active'
+		WHERE ib.id = $1
+			AND ($2::bigint IS NULL OR ib.uploaded_by_user_id = $2 OR ib.uploaded_by_user_id IS NULL)
+	`, sourceID, creatorID).Scan(&available); err != nil {
+		return nil, err
+	}
+	if available == 0 {
+		return nil, fmt.Errorf("bộ đề cương chưa có câu hỏi active hoặc không thuộc tài khoản này")
+	}
+	if requestedCount <= 0 {
+		requestedCount = available
+	}
+	if requestedCount > available {
+		return nil, fmt.Errorf("bộ đề cương chỉ có %d câu active", available)
+	}
+
+	orderClause := "ii.item_order, qb.id"
+	if randomize {
+		orderClause = "random()"
+	}
+	rows, err := tx.Query(ctx, fmt.Sprintf(`
+		SELECT qb.id
+		FROM import_batches ib
+		JOIN import_items ii ON ii.batch_id = ib.id
+		JOIN question_bank qb ON qb.import_item_id = ii.id AND qb.question_status = 'active'
+		WHERE ib.id = $1
+			AND ($2::bigint IS NULL OR ib.uploaded_by_user_id = $2 OR ib.uploaded_by_user_id IS NULL)
+		ORDER BY %s
+		LIMIT $3
+	`, orderClause), sourceID, creatorID, requestedCount)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	ids := []int64{}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
+func examModeValue(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "attendance" || strings.Contains(normalized, "điểm") || strings.Contains(normalized, "diem") {
+		return "attendance"
+	}
+	if normalized == "official" || strings.Contains(normalized, "chính") || strings.Contains(normalized, "chinh") {
+		return "official"
+	}
+	return "practice"
+}
+
+func randomAccessCode(length int) (string, error) {
+	const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+	var builder strings.Builder
+	builder.Grow(length)
+	max := big.NewInt(int64(len(alphabet)))
+	for i := 0; i < length; i++ {
+		n, err := crand.Int(crand.Reader, max)
+		if err != nil {
+			return "", err
+		}
+		builder.WriteByte(alphabet[n.Int64()])
+	}
+	return builder.String(), nil
+}
+
+func safeFilename(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "export.xlsx"
+	}
+	replacer := strings.NewReplacer(
+		"\\", "-", "/", "-", ":", "-", "*", "-", "?", "-",
+		"\"", "-", "<", "-", ">", "-", "|", "-", " ", "-",
+	)
+	value = replacer.Replace(value)
+	for strings.Contains(value, "--") {
+		value = strings.ReplaceAll(value, "--", "-")
+	}
+	if len(value) > 120 {
+		value = value[:120]
+	}
+	if !strings.HasSuffix(strings.ToLower(value), ".xlsx") {
+		value += ".xlsx"
+	}
+	return value
+}
+
+func parseCreateStart(value string) (*time.Time, error) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil, nil
+	}
+	layouts := []string{
+		time.RFC3339,
+		"2006-01-02T15:04",
+		"2006-01-02 15:04",
+	}
+	var lastErr error
+	for _, layout := range layouts {
+		parsed, err := time.ParseInLocation(layout, value, time.Local)
+		if err == nil {
+			return &parsed, nil
+		}
+		lastErr = err
+	}
+	return nil, fmt.Errorf("thời gian mở bài không hợp lệ: %v", lastErr)
 }
