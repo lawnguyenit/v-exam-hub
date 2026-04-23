@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import { AdminTeachers } from "./pages/admin/AdminTeachers";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { RoleSelect } from "./pages/auth/RoleSelect";
 import { StudentDashboard } from "./pages/student/StudentDashboard";
@@ -15,6 +16,8 @@ function App() {
       <Route path="/login" element={<Navigate to="/" replace />} />
       <Route path="/login/student" element={<LoginPage role="student" />} />
       <Route path="/login/teacher" element={<LoginPage role="teacher" />} />
+      <Route path="/login/admin" element={<LoginPage role="admin" />} />
+      <Route path="/admin" element={<AdminTeachers />} />
       <Route path="/student" element={<StudentDashboard />} />
       <Route path="/student/exam" element={<StudentExam />} />
       <Route path="/student/review" element={<StudentReview />} />

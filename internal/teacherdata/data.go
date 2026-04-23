@@ -23,6 +23,13 @@ type Dashboard struct {
 	Exams   []ExamSummary `json:"exams"`
 }
 
+func effectiveExamStatus(status string, start *time.Time, now time.Time) string {
+	if status == "scheduled" && start != nil && !start.After(now) {
+		return "open"
+	}
+	return status
+}
+
 type Profile struct {
 	DisplayName string `json:"displayName"`
 	TeacherCode string `json:"teacherCode"`
@@ -206,12 +213,22 @@ type examConfig struct {
 	QuestionSourceID      int64
 }
 
+var appLocation = loadAppLocation()
+
+func loadAppLocation() *time.Location {
+	location, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		return time.FixedZone("Asia/Ho_Chi_Minh", 7*60*60)
+	}
+	return location
+}
+
 func DashboardFor(ctx context.Context, db *pgxpool.Pool, account string) (Dashboard, error) {
 	profile, err := profileFor(ctx, db, account)
 	if err != nil {
 		return Dashboard{}, err
 	}
-	exams, err := examSummaries(ctx, db)
+	exams, err := examSummaries(ctx, db, account)
 	if err != nil {
 		return Dashboard{}, err
 	}
@@ -240,7 +257,7 @@ func UpdateProfile(ctx context.Context, db *pgxpool.Pool, payload ProfileUpdateR
 	return profileFor(ctx, db, payload.Username)
 }
 
-func QuestionBank(ctx context.Context, db *pgxpool.Pool) ([]QuestionBankItem, error) {
+func QuestionBank(ctx context.Context, db *pgxpool.Pool, account string) ([]QuestionBankItem, error) {
 	rows, err := db.Query(ctx, `
 		SELECT ib.id,
 			COALESCE(NULLIF(ib.original_filename, ''), NULLIF(ib.source_name, ''), 'Bộ đề #' || ib.id::text),
@@ -250,10 +267,11 @@ func QuestionBank(ctx context.Context, db *pgxpool.Pool) ([]QuestionBankItem, er
 		FROM import_batches ib
 		JOIN import_items ii ON ii.batch_id = ib.id
 		JOIN question_bank qb ON qb.import_item_id = ii.id AND qb.question_status = 'active'
+		WHERE ib.uploaded_by_user_id = (SELECT id FROM users WHERE username = $1)
 		GROUP BY ib.id
 		ORDER BY MAX(qb.created_at) DESC, ib.id DESC
 		LIMIT 200
-	`)
+	`, strings.TrimSpace(account))
 	if err != nil {
 		return nil, err
 	}
@@ -266,7 +284,7 @@ func QuestionBank(ctx context.Context, db *pgxpool.Pool) ([]QuestionBankItem, er
 		if err := rows.Scan(&item.ID, &item.Title, &item.SourceName, &item.QuestionCount, &createdAt); err != nil {
 			return nil, err
 		}
-		item.CreatedAt = createdAt.Local().Format("02/01/2006 15:04")
+		item.CreatedAt = createdAt.In(appLocation).Format("02/01/2006 15:04")
 		items = append(items, item)
 	}
 	return items, rows.Err()
@@ -856,7 +874,7 @@ func profileFor(ctx context.Context, db *pgxpool.Pool, account string) (Profile,
 	return profile, err
 }
 
-func examSummaries(ctx context.Context, db *pgxpool.Pool) ([]ExamSummary, error) {
+func examSummaries(ctx context.Context, db *pgxpool.Pool, account string) ([]ExamSummary, error) {
 	rows, err := db.Query(ctx, `
 		SELECT e.id, e.title, e.exam_status::text, e.exam_mode::text,
 			COALESCE(string_agg(DISTINCT c.class_code, ', '), ''),
@@ -870,9 +888,10 @@ func examSummaries(ctx context.Context, db *pgxpool.Pool) ([]ExamSummary, error)
 		LEFT JOIN class_members cm ON cm.class_id = c.id AND cm.member_status = 'active'
 		LEFT JOIN exam_attempts ea ON ea.exam_id = e.id
 		WHERE e.exam_status <> 'archived'
+			AND e.created_by_user_id = (SELECT id FROM users WHERE username = $1)
 		GROUP BY e.id
 		ORDER BY e.start_time DESC NULLS LAST, e.id DESC
-	`)
+	`, strings.TrimSpace(account))
 	if err != nil {
 		return nil, err
 	}
@@ -887,6 +906,7 @@ func examSummaries(ctx context.Context, db *pgxpool.Pool) ([]ExamSummary, error)
 		if err := rows.Scan(&id, &title, &status, &mode, &target, &start, &total, &submitted, &avg); err != nil {
 			return nil, err
 		}
+		status = effectiveExamStatus(status, start, time.Now())
 		exams = append(exams, ExamSummary{
 			ID:          strconv.FormatInt(id, 10),
 			Title:       title,
@@ -929,6 +949,7 @@ func examBaseByID(ctx context.Context, db *pgxpool.Pool, examID int64) (examBase
 		}
 		return examBase{}, false, err
 	}
+	base.Status = effectiveExamStatus(base.Status, base.StartTime, time.Now())
 	return base, true, nil
 }
 
@@ -1191,8 +1212,8 @@ func formatStart(value *time.Time) string {
 	if value == nil {
 		return "Chưa đặt giờ"
 	}
-	local := value.Local()
-	now := time.Now()
+	local := value.In(appLocation)
+	now := time.Now().In(appLocation)
 	if local.Year() == now.Year() && local.YearDay() == now.YearDay() {
 		return "Hôm nay " + local.Format("15:04")
 	}
@@ -1203,14 +1224,14 @@ func datetimeLocal(value *time.Time) string {
 	if value == nil {
 		return ""
 	}
-	return value.Local().Format("2006-01-02T15:04")
+	return value.In(appLocation).Format("2006-01-02T15:04")
 }
 
 func timeText(value *time.Time) string {
 	if value == nil {
 		return "Chưa nộp"
 	}
-	return value.Local().Format("02/01/2006 15:04")
+	return value.In(appLocation).Format("02/01/2006 15:04")
 }
 
 func durationText(start time.Time, submitted *time.Time) string {
@@ -1369,14 +1390,16 @@ func parseCreateStart(value string) (*time.Time, error) {
 	if value == "" {
 		return nil, nil
 	}
+	if parsed, err := time.Parse(time.RFC3339, value); err == nil {
+		return &parsed, nil
+	}
 	layouts := []string{
-		time.RFC3339,
 		"2006-01-02T15:04",
 		"2006-01-02 15:04",
 	}
 	var lastErr error
 	for _, layout := range layouts {
-		parsed, err := time.ParseInLocation(layout, value, time.Local)
+		parsed, err := time.ParseInLocation(layout, value, appLocation)
 		if err == nil {
 			return &parsed, nil
 		}

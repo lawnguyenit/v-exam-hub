@@ -1,0 +1,95 @@
+.admin-shell {
+  min-height: 100vh;
+}
+
+.admin-shell .teacher-topbar {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.admin-shell .teacher-nav:first-child {
+  align-items: center;
+}
+
+.teacher-layout.single-column {
+  display: grid;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 28px;
+  gap: 20px;
+}
+
+.admin-panel {
+  display: grid;
+  gap: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 24px;
+}
+
+.admin-teacher-form {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-teacher-form label {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.admin-teacher-form input,
+.admin-teacher-form select {
+  min-height: 48px;
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 0 14px;
+}
+
+.admin-teacher-form input:focus,
+.admin-teacher-form select:focus {
+  border-color: var(--green);
+  outline: none;
+}
+
+.form-hint {
+  margin: 0;
+  color: var(--muted);
+}
+
+.form-grid.two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.admin-result {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--soft);
+  padding: 18px;
+}
+
+.result-grid {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  gap: 10px 16px;
+}
+
+.result-grid span {
+  color: var(--muted);
+  font-weight: 800;
+}
+
+@media (max-width: 760px) {
+  .form-grid.two,
+  .result-grid {
+    grid-template-columns: 1fr;
+  }
+}

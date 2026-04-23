@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -39,6 +40,27 @@ type StudentPasswordUpdateRequest struct {
 	Username    string `json:"username"`
 	StudentCode string `json:"studentCode"`
 	Password    string `json:"password"`
+}
+
+type TeacherCreateRequest struct {
+	AdminUsername string `json:"adminUsername"`
+	Username      string `json:"username"`
+	Password      string `json:"password"`
+	TeacherCode   string `json:"teacherCode"`
+	FullName      string `json:"fullName"`
+	Email         string `json:"email"`
+	Phone         string `json:"phone"`
+	Department    string `json:"department"`
+}
+
+type TeacherCreateResult struct {
+	Username          string `json:"username"`
+	TeacherCode       string `json:"teacherCode"`
+	FullName          string `json:"fullName"`
+	Email             string `json:"email"`
+	Department        string `json:"department"`
+	TemporaryPassword string `json:"temporaryPassword"`
+	Created           bool   `json:"created"`
 }
 
 type ClassSummary struct {
@@ -90,25 +112,53 @@ func Authenticate(ctx context.Context, db *pgxpool.Pool, payload LoginRequest) (
 		return LoginResult{}, fmt.Errorf("thiếu tài khoản, mật khẩu hoặc vai trò")
 	}
 
-	var storedHash, dbRole, displayName string
+	var userID int64
+	var storedHash, displayName string
 	err := db.QueryRow(ctx, `
-		SELECT u.password_hash, r.code,
+		SELECT u.id, u.password_hash,
 			COALESCE(sp.full_name, tp.full_name, u.username)
 		FROM users u
-		JOIN user_roles ur ON ur.user_id = u.id
-		JOIN roles r ON r.id = ur.role_id
 		LEFT JOIN student_profiles sp ON sp.user_id = u.id
 		LEFT JOIN teacher_profiles tp ON tp.user_id = u.id
-		WHERE u.username = $1 AND u.account_status = 'active' AND r.code = $2
+		WHERE u.username = $1 AND u.account_status = 'active'
 		LIMIT 1
-	`, username, role).Scan(&storedHash, &dbRole, &displayName)
+	`, username).Scan(&userID, &storedHash, &displayName)
 	if err != nil {
 		return LoginResult{}, fmt.Errorf("tài khoản không tồn tại hoặc không đúng vai trò")
 	}
 	if !passwordMatches(storedHash, password) {
 		return LoginResult{}, fmt.Errorf("mật khẩu không đúng")
 	}
-	return LoginResult{Username: username, Role: dbRole, DisplayName: displayName}, nil
+	rows, err := db.Query(ctx, `
+		SELECT r.code
+		FROM user_roles ur
+		JOIN roles r ON r.id = ur.role_id
+		WHERE ur.user_id = $1
+		ORDER BY r.code
+	`, userID)
+	if err != nil {
+		return LoginResult{}, err
+	}
+	defer rows.Close()
+
+	roles := map[string]bool{}
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return LoginResult{}, err
+		}
+		roles[code] = true
+	}
+	if err := rows.Err(); err != nil {
+		return LoginResult{}, err
+	}
+	if roles["admin"] {
+		return LoginResult{Username: username, Role: "admin", DisplayName: displayName}, nil
+	}
+	if !roles[role] {
+		return LoginResult{}, fmt.Errorf("tài khoản không đúng vai trò")
+	}
+	return LoginResult{Username: username, Role: role, DisplayName: displayName}, nil
 }
 
 func ListClasses(ctx context.Context, db *pgxpool.Pool) ([]ClassSummary, error) {
@@ -170,6 +220,182 @@ func UpdateStudentPassword(ctx context.Context, db *pgxpool.Pool, payload Studen
 		return fmt.Errorf("không tìm thấy sinh viên cần đổi mật khẩu")
 	}
 	return nil
+}
+
+func CreateTeacherAccount(ctx context.Context, db *pgxpool.Pool, payload TeacherCreateRequest) (TeacherCreateResult, error) {
+	adminUsername := strings.TrimSpace(payload.AdminUsername)
+	if adminUsername == "" {
+		return TeacherCreateResult{}, fmt.Errorf("missing admin account")
+	}
+	var isAdmin bool
+	if err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM users u
+			JOIN user_roles ur ON ur.user_id = u.id
+			JOIN roles r ON r.id = ur.role_id
+			WHERE u.username = $1 AND r.code = 'admin' AND u.account_status = 'active'
+		)
+	`, adminUsername).Scan(&isAdmin); err != nil {
+		return TeacherCreateResult{}, err
+	}
+	if !isAdmin {
+		return TeacherCreateResult{}, fmt.Errorf("account is not allowed to create teacher users")
+	}
+
+	fullName := strings.TrimSpace(payload.FullName)
+	if fullName == "" {
+		return TeacherCreateResult{}, fmt.Errorf("missing teacher full name")
+	}
+	email := strings.TrimSpace(payload.Email)
+	phone := strings.TrimSpace(payload.Phone)
+	department := strings.TrimSpace(payload.Department)
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return TeacherCreateResult{}, err
+	}
+	defer tx.Rollback(ctx)
+
+	roleID, err := ensureRole(ctx, tx, "teacher", "Teacher")
+	if err != nil {
+		return TeacherCreateResult{}, err
+	}
+
+	teacherCode := strings.TrimSpace(payload.TeacherCode)
+	if teacherCode == "" {
+		teacherCode = teacherCodeFromName(fullName)
+	}
+	teacherCode, err = uniqueTeacherCode(ctx, tx, teacherCode)
+	if err != nil {
+		return TeacherCreateResult{}, err
+	}
+	username := strings.TrimSpace(payload.Username)
+	if username == "" {
+		username = teacherCode
+	}
+	password := strings.TrimSpace(payload.Password)
+	if password == "" {
+		password = username
+	}
+
+	var userID int64
+	var created bool
+	if err := tx.QueryRow(ctx, `
+		WITH upsert_user AS (
+			INSERT INTO users (username, password_hash)
+			VALUES ($1, $2)
+			ON CONFLICT (username) DO UPDATE
+			SET password_hash = EXCLUDED.password_hash,
+				account_status = 'active',
+				updated_at = NOW()
+			RETURNING id, xmax = 0 AS inserted
+		)
+		SELECT id, inserted FROM upsert_user
+	`, username, password).Scan(&userID, &created); err != nil {
+		return TeacherCreateResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, userID, roleID); err != nil {
+		return TeacherCreateResult{}, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO teacher_profiles (user_id, teacher_code, full_name, email, phone, department)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), NULLIF($6, ''))
+		ON CONFLICT (teacher_code) DO UPDATE
+		SET user_id = EXCLUDED.user_id,
+			full_name = EXCLUDED.full_name,
+			email = EXCLUDED.email,
+			phone = EXCLUDED.phone,
+			department = EXCLUDED.department,
+			profile_status = 'active',
+			updated_at = NOW()
+	`, userID, teacherCode, fullName, email, phone, department); err != nil {
+		return TeacherCreateResult{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return TeacherCreateResult{}, err
+	}
+	return TeacherCreateResult{
+		Username:          username,
+		TeacherCode:       teacherCode,
+		FullName:          fullName,
+		Email:             email,
+		Department:        department,
+		TemporaryPassword: password,
+		Created:           created,
+	}, nil
+}
+
+func uniqueTeacherCode(ctx context.Context, tx pgx.Tx, base string) (string, error) {
+	base = cleanIdentifier(base)
+	if base == "" {
+		base = "gv"
+	}
+	if len(base) > 32 {
+		base = base[:32]
+	}
+	for i := 0; i < 1000; i++ {
+		candidate := base
+		if i > 0 {
+			candidate = fmt.Sprintf("%s%d", base, i+1)
+		}
+		var exists bool
+		if err := tx.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM users WHERE username = $1
+				UNION ALL
+				SELECT 1 FROM teacher_profiles WHERE teacher_code = $1
+			)
+		`, candidate).Scan(&exists); err != nil {
+			return "", err
+		}
+		if !exists {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("cannot create unique teacher code")
+}
+
+func teacherCodeFromName(fullName string) string {
+	words := strings.Fields(toASCIILower(fullName))
+	cleaned := make([]string, 0, len(words))
+	for _, word := range words {
+		word = cleanIdentifier(word)
+		if word != "" {
+			cleaned = append(cleaned, word)
+		}
+	}
+	if len(cleaned) == 0 {
+		return "gv"
+	}
+	code := cleaned[len(cleaned)-1]
+	for _, word := range cleaned[:len(cleaned)-1] {
+		code += string(word[0])
+	}
+	return code
+}
+
+func cleanIdentifier(value string) string {
+	var builder strings.Builder
+	for _, r := range value {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			builder.WriteRune(r)
+		}
+	}
+	return builder.String()
+}
+
+func toASCIILower(value string) string {
+	replacer := strings.NewReplacer(
+		"à", "a", "á", "a", "ạ", "a", "ả", "a", "ã", "a", "â", "a", "ầ", "a", "ấ", "a", "ậ", "a", "ẩ", "a", "ẫ", "a", "ă", "a", "ằ", "a", "ắ", "a", "ặ", "a", "ẳ", "a", "ẵ", "a",
+		"è", "e", "é", "e", "ẹ", "e", "ẻ", "e", "ẽ", "e", "ê", "e", "ề", "e", "ế", "e", "ệ", "e", "ể", "e", "ễ", "e",
+		"ì", "i", "í", "i", "ị", "i", "ỉ", "i", "ĩ", "i",
+		"ò", "o", "ó", "o", "ọ", "o", "ỏ", "o", "õ", "o", "ô", "o", "ồ", "o", "ố", "o", "ộ", "o", "ổ", "o", "ỗ", "o", "ơ", "o", "ờ", "o", "ớ", "o", "ợ", "o", "ở", "o", "ỡ", "o",
+		"ù", "u", "ú", "u", "ụ", "u", "ủ", "u", "ũ", "u", "ư", "u", "ừ", "u", "ứ", "u", "ự", "u", "ử", "u", "ữ", "u",
+		"ỳ", "y", "ý", "y", "ỵ", "y", "ỷ", "y", "ỹ", "y",
+		"đ", "d",
+	)
+	return replacer.Replace(strings.ToLower(value))
 }
 
 func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, className string, rows []studentRow) (StudentImportResult, error) {

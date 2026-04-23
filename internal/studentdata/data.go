@@ -124,6 +124,16 @@ type AttemptState struct {
 	LastSavedAt     int64          `json:"lastSavedAt"`
 }
 
+var appLocation = loadAppLocation()
+
+func loadAppLocation() *time.Location {
+	location, err := time.LoadLocation("Asia/Ho_Chi_Minh")
+	if err != nil {
+		return time.FixedZone("Asia/Ho_Chi_Minh", 7*60*60)
+	}
+	return location
+}
+
 func DashboardFor(ctx context.Context, db *pgxpool.Pool, account string) (Dashboard, error) {
 	if account == "" {
 		account = "student"
@@ -196,14 +206,16 @@ func StartAttempt(ctx context.Context, db *pgxpool.Pool, payload AttemptStartReq
 	var status string
 	var mode string
 	var storedAccessCode string
+	var start *time.Time
 	if err := tx.QueryRow(ctx, `
 		SELECT duration_seconds, max_attempts_per_student, total_points::float8,
-			exam_status::text, exam_mode::text, COALESCE(access_code, '')
+			exam_status::text, exam_mode::text, COALESCE(access_code, ''), start_time
 		FROM exams
 		WHERE id = $1
-	`, examID).Scan(&durationSeconds, &maxAttempts, &totalPoints, &status, &mode, &storedAccessCode); err != nil {
+	`, examID).Scan(&durationSeconds, &maxAttempts, &totalPoints, &status, &mode, &storedAccessCode, &start); err != nil {
 		return AttemptState{}, err
 	}
+	status = effectiveExamStatus(status, start, time.Now())
 	if status != "open" {
 		return AttemptState{}, fmt.Errorf("bài thi chưa mở")
 	}
@@ -799,6 +811,7 @@ func examsForStudent(ctx context.Context, db *pgxpool.Pool, userID int64) ([]Exa
 		if err := rows.Scan(&id, &title, &status, &mode, &seconds, &start); err != nil {
 			return nil, nil, err
 		}
+		status = effectiveExamStatus(status, start, time.Now())
 		if status == "open" {
 			available = append(available, ExamSummary{ID: id, Status: modeLabel(mode), Title: title, Meta: "Đang mở cho lớp của bạn.", Duration: fmt.Sprintf("%d phút", seconds/60)})
 		}
@@ -831,7 +844,7 @@ func historyForStudent(ctx context.Context, db *pgxpool.Pool, userID int64) ([]H
 		if err := rows.Scan(&record.ID, &record.Title, &when, &record.Score, &started, &submitted); err != nil {
 			return nil, "0", err
 		}
-		record.Date = when.Local().Format("02/01/2006")
+		record.Date = when.In(appLocation).Format("02/01/2006")
 		record.Duration = durationText(started, submitted)
 		if len(history) == 0 {
 			latest = record.Score
@@ -857,7 +870,7 @@ func formatStart(value *time.Time) string {
 	if value == nil {
 		return "Chưa đặt giờ"
 	}
-	return value.Local().Format("02/01 - 15:04")
+	return value.In(appLocation).Format("02/01 - 15:04")
 }
 
 func requiresAccessCode(mode string) bool {
@@ -890,6 +903,13 @@ func validExamAccessCode(stored string, input string, now time.Time) bool {
 		return false
 	}
 	return code != "" && code == strings.ToUpper(strings.TrimSpace(input))
+}
+
+func effectiveExamStatus(status string, start *time.Time, now time.Time) string {
+	if status == "scheduled" && start != nil && !start.After(now) {
+		return "open"
+	}
+	return status
 }
 
 func modeLabel(mode string) string {

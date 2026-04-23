@@ -1,17 +1,59 @@
-version: '3.8'
 services:
   db:
-    image: postgres:16-alpine # Bản alpine cho nhẹ máy
+    image: postgres:16-alpine
     container_name: v_exam_hub_db
     restart: always
     environment:
       POSTGRES_USER: admin
-      POSTGRES_PASSWORD: 123123 # Thay bằng pass của ông
+      POSTGRES_PASSWORD: "123" # Nên để trong ngoặc kép nếu có ký tự đặc biệt
       POSTGRES_DB: v_exam_hub
-    ports:
-      - "5432:5432"
+    # ports: 
+    #   - "5432:5432" # Chỉ mở nếu ông muốn dùng Tool (DBeaver) từ máy ngoài soi DB
+    networks:
+      - exam_network
     volumes:
-      - postgres_data:/var/lib/postgresql/data # Lưu dữ liệu thật vào máy laptop
+      - postgres_data:/var/lib/postgresql/data
+      - ./v-exam-hub-local-db.session.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  backend:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: v_exam_backend
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "8080:8080" # BẮT BUỘC: Để trình duyệt có thể gọi API
+    environment:
+      DB_URL: "host=db user=admin password=123 dbname=v_exam_hub sslmode=disable"
+      DB_STARTUP_TIMEOUT: "90s"
+    networks:
+      - exam_network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: v_exam_frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - exam_network
 
 volumes:
   postgres_data:
+
+networks:
+  exam_network:
+    driver: bridge

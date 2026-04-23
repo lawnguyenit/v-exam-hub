@@ -1,4 +1,4 @@
-export type Role = "student" | "teacher";
+export type Role = "student" | "teacher" | "admin";
 
 export type AuthSession = {
   account: string;

@@ -151,7 +151,7 @@ export type WrongItem = {
 
 export type LoginResult = {
   username: string;
-  role: "student" | "teacher";
+  role: "student" | "teacher" | "admin";
   displayName: string;
 };
 
@@ -238,6 +238,16 @@ export type StudentImportResult = {
     password: string;
   }>;
   errors: string[];
+};
+
+export type TeacherCreateResult = {
+  username: string;
+  teacherCode: string;
+  fullName: string;
+  email: string;
+  department: string;
+  temporaryPassword: string;
+  created: boolean;
 };
 
 export type TeacherClass = {
@@ -338,7 +348,7 @@ export async function updateTeacherProfile(payload: { username: string; displayN
   return response.json() as Promise<TeacherDashboard["profile"]>;
 }
 
-export async function login(payload: { username: string; password: string; role: "student" | "teacher" }) {
+export async function login(payload: { username: string; password: string; role: "student" | "teacher" | "admin" }) {
   const response = await fetch("/api/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -348,6 +358,27 @@ export async function login(payload: { username: string; password: string; role:
     throw new Error(await response.text());
   }
   return response.json() as Promise<LoginResult>;
+}
+
+export async function createAdminTeacher(payload: {
+  adminUsername: string;
+  username: string;
+  password: string;
+  teacherCode: string;
+  fullName: string;
+  email: string;
+  phone: string;
+  department: string;
+}) {
+  const response = await fetch("/api/admin/teachers", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<TeacherCreateResult>;
 }
 
 export async function startStudentAttempt(payload: { account: string; examId: string; accessCode?: string }) {
@@ -474,8 +505,9 @@ export function getTeacherClasses() {
   return getJSON<TeacherClass[]>("/api/teacher/classes");
 }
 
-export function getTeacherQuestionBank() {
-  return getJSON<QuestionBankItem[]>("/api/teacher/question-bank");
+export function getTeacherQuestionBank(account?: string) {
+  const query = account ? `?account=${encodeURIComponent(account)}` : "";
+  return getJSON<QuestionBankItem[]>(`/api/teacher/question-bank${query}`);
 }
 
 export function getTeacherExamSnapshot(examID: string) {

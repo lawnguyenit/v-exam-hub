@@ -1,0 +1,259 @@
+v_exam_hub_db   The files belonging to this database system will be owned by user postgres.
+v_exam_hub_db   This user must also own the server process.
+v_exam_hub_db  
+v_exam_hub_db   The database cluster will be initialized with locale en_US.utf8.
+v_exam_hub_db   The default database encoding has accordingly been set to UTF8.
+v_exam_hub_db   The default text search configuration will be set to english.
+v_exam_hub_db  
+v_exam_hub_db   Data page checksums are disabled.
+v_exam_hub_db  
+v_exam_hub_db   fixing permissions on existing directory varlibpostgresqldata ... ok
+v_exam_hub_db   creating subdirectories ... ok
+v_exam_hub_db   selecting dynamic shared memory implementation ... posix
+
+
+
+v_exam_backend   20260422 145801 database connection failed failed to connect to `user=admin database=v_exam_hub` 172.19.0.25432 (db) dial error dial tcp 172.19.0.25432 connect connection refused
+v_exam_hub_db    selecting default max_connections ... 100
+v_exam_hub_db    selecting default shared_buffers ... 128MB
+v_exam_hub_db    selecting default time zone ... UTC
+v_exam_hub_db    creating configuration files ... ok
+
+
+
+v_exam_frontend   docker-entrypoint.sh docker-entrypoint.d is not empty, will attempt to perform configuration
+
+
+v_exam_hub_db     running bootstrap script ... ok
+v_exam_frontend   docker-entrypoint.sh Looking for shell scripts in docker-entrypoint.d
+
+v_exam_frontend   docker-entrypoint.sh Launching docker-entrypoint.d10-listen-on-ipv6-by-default.sh
+
+
+v_exam_hub_db     2026-04-22 145802.192 UTC [35] WARNING  no usable system locales were found
+v_exam_frontend   10-listen-on-ipv6-by-default.sh info Getting the checksum of etcnginxconf.ddefault.conf
+v_exam_backend exited with code 1 (restarting)
+
+v_exam_hub_db     performing post-bootstrap initialization ... ok
+
+v_exam_hub_db     syncing data to disk ... ok
+v_exam_frontend   docker-entrypoint.sh Sourcing docker-entrypoint.d15-local-resolvers.envsh
+
+
+v_exam_hub_db    
+
+
+v_exam_frontend   docker-entrypoint.sh Launching docker-entrypoint.d20-envsubst-on-templates.sh
+v_exam_hub_db    
+v_exam_backend exited with code 1 (restarting)
+v_exam_backend    20260422 145802 database connection failed failed to connect to `user=admin database=v_exam_hub` 172.19.0.25432 (db) dial error dial tcp 172.19.0.25432 connect connection refused
+v_exam_frontend   docker-entrypoint.sh Launching docker-entrypoint.d30-tune-worker-processes.sh
+v_exam_backend exited with code 1 (restarting)
+v_exam_backend    20260422 145802 database connection failed failed to connect to `user=admin database=v_exam_hub` 172.19.0.25432 (db) dial error dial tcp 172.19.0.25432 connect connection refused
+
+
+v_exam_hub_db     Success. You can now start the database server using
+
+
+
+
+v_exam_frontend   docker-entrypoint.sh Configuration complete; ready for start up
+v_exam_hub_db    
+
+
+v_exam_hub_db         pg_ctl -D varlibpostgresqldata -l logfile start
+v_exam_frontend   20260422 145802 [notice] 1#1 using the epoll event method
+
+
+v_exam_hub_db    
+v_exam_frontend   20260422 145802 [notice] 1#1 nginx1.30.0
+v_exam_hub_db     initdb warning enabling trust authentication for local connections
+
+v_exam_frontend   20260422 145802 [notice] 1#1 built by gcc 15.2.0 (Alpine 15.2.0)
+v_exam_frontend   20260422 145802 [notice] 1#1 OS Linux 6.6.87.2-microsoft-standard-WSL2 -A, or --auth-local and
+v_exam_hub_db     waiting for server to start....2026-04-22 145802.943 UTC [41] LOG  starting PostgreSQL 16.13 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 getrlimit(RLIMIT_NOFILE) 10485761048576
+v_exam_hub_db     2026-04-22 145802.944 UTC [41] LOG  listening on Unix socket varrunpostgresql.s.PGSQL.5432
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker processes
+v_exam_hub_db     2026-04-22 145802.950 UTC [44] LOG  database system was shut down at 2026-04-22 145802 UTC
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 30
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 32
+v_exam_hub_db      done
+
+
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 33
+v_exam_hub_db     server started
+
+
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 34
+
+
+v_exam_hub_db     CREATE DATABASE
+
+v_exam_hub_db    
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 35
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 36
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 37rypoint-initdb.d
+v_exam_hub_db     waiting for server to shut down....2026-04-22 145803.086 UTC [41] LOG  received fast shutdown request
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 39
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 40
+v_exam_hub_db     2026-04-22 145803.088 UTC [41] LOG  aborting any active transactions
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 41
+
+v_exam_hub_db     2026-04-22 145803.090 UTC [41] LOG  background worker logical replication launcher (PID 47) exited with exit code 1
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 42
+
+
+
+
+v_exam_hub_db     2026-04-22 145803.090 UTC [42] LOG  shutting down
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 43
+v_exam_hub_db     2026-04-22 145803.092 UTC [42] LOG  checkpoint starting shutdown immediate
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 44
+
+
+
+
+v_exam_hub_db     2026-04-22 145803.178 UTC [42] LOG  checkpoint complete wrote 926 buffers (5.7%); 0 WAL file(s) added, 0 removed, 0 recycled; write=0.016 s, sync=0.066 s, total=0.088 s; sync files=301, longest=0.002 s, average=0.001 s; distance=4272 kB, estimate=4272 kB; lsn=0191E930, redo lsn=0191E930
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 45
+v_exam_hub_db     2026-04-22 145803.184 UTC [41] LOG  database system is shut down
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 46
+v_exam_hub_db      done
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 47
+v_exam_hub_db     server stopped
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 48
+v_exam_hub_db    
+v_exam_hub_db     PostgreSQL init process complete; ready for start up.s 49
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 50
+
+
+
+
+v_exam_hub_db    
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 51
+v_exam_backend    20260422 145803 database connection failed ERROR relation import_batches does not exist (SQLSTATE 42P01)
+v_exam_backend exited with code 1 (restarting)
+v_exam_hub_db     2026-04-22 145803.206 UTC [1] LOG  starting PostgreSQL 16.13 on x86_64-pc-linux-musl, compiled by gcc (Alpine 15.2.0) 15.2.0, 64-bit
+
+
+v_exam_hub_db     2026-04-22 145803.206 UTC [1] LOG  listening on IPv4 address 0.0.0.0, port 5432
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 53
+v_exam_hub_db     2026-04-22 145803.206 UTC [1] LOG  listening on IPv6 address , port 5432
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 54
+v_exam_hub_db     2026-04-22 145803.210 UTC [1] LOG  listening on Unix socket varrunpostgresql.s.PGSQL.5432
+v_exam_hub_db     2026-04-22 145803.217 UTC [57] LOG  database system was shut down at 2026-04-22 145803 UTC
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 55
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 56
+
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 57
+v_exam_hub_db     2026-04-22 145803.534 UTC [61] ERROR  relation import_batches does not exist
+v_exam_hub_db     2026-04-22 145803.534 UTC [61] STATEMENT  tach
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 58
+v_exam_hub_db                  -- Chỉ chạy ALTER TABLE nếu bảng 'exams' đã tồn tại
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 59
+v_exam_hub_db                  DO $$ BEGIN
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 60
+v_exam_hub_db                      IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'exams') THEN
+
+
+v_exam_frontend   20260422 145802 [notice] 1#1 start worker process 61
+v_exam_hub_db                          ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_positive;
+v_exam_hub_db                          ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_non_negative;
+v_exam_hub_db                          ALTER TABLE exams ADD CONSTRAINT ck_exam_attempts_non_negative CHECK (max_attempts_per_student = 0);
+v_exam_hub_db                      END IF;
+v_exam_hub_db                  END $$;
+v_exam_hub_db    
+v_exam_hub_db                  -- Tạo bảng mới nếu chưa có
+v_exam_hub_db                  CREATE TABLE IF NOT EXISTS import_item_assets (
+v_exam_hub_db                      id BIGSERIAL PRIMARY KEY,
+v_exam_hub_db                      batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+v_exam_hub_db                      import_item_id BIGINT REFERENCES import_items(id) ON DELETE SET NULL,
+v_exam_hub_db                      target attachment_target_enum NOT NULL DEFAULT 'unknown',
+v_exam_hub_db                      option_label VARCHAR(10),
+v_exam_hub_db                      file_url TEXT NOT NULL,
+v_exam_hub_db                      mime_type VARCHAR(100),
+v_exam_hub_db                      page_number INT,
+v_exam_hub_db                      display_order INT NOT NULL DEFAULT 0,
+v_exam_hub_db                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+v_exam_hub_db                  );
+v_exam_hub_db    
+v_exam_hub_db                  CREATE INDEX IF NOT EXISTS idx_import_item_assets_batch_order ON import_item_assets(batch_id, import_item_id, display_order);
+v_exam_hub_db    
+v_exam_hub_db     2026-04-22 145804.551 UTC [62] ERROR  relation import_batches does not exist
+v_exam_hub_db     2026-04-22 145804.551 UTC [62] STATEMENT
+v_exam_hub_db                  -- Chỉ chạy ALTER TABLE nếu bảng 'exams' đã tồn tại
+v_exam_hub_db                  DO $$ BEGIN
+v_exam_hub_db                      IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'exams') THEN
+v_exam_hub_db                          ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_positive;
+v_exam_hub_db                          ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_non_negative;
+v_exam_hub_db                          ALTER TABLE exams ADD CONSTRAINT ck_exam_attempts_non_negative CHECK (max_attempts_per_student = 0);
+v_exam_hub_db                      END IF;
+v_exam_hub_db                  END $$;
+v_exam_hub_db    
+v_exam_hub_db                  -- Tạo bảng mới nếu chưa có
+v_exam_hub_db                  CREATE TABLE IF NOT EXISTS import_item_assets (
+v_exam_hub_db                      id BIGSERIAL PRIMARY KEY,
+v_exam_hub_db                      batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+v_exam_hub_db                      import_item_id BIGINT REFERENCES import_items(id) ON DELETE SET NULL,
+v_exam_hub_db                      target attachment_target_enum NOT NULL DEFAULT 'unknown',
+v_exam_hub_db                      option_label VARCHAR(10),
+v_exam_hub_db                      file_url TEXT NOT NULL,
+v_exam_hub_db                      mime_type VARCHAR(100),
+v_exam_hub_db                      page_number INT,
+v_exam_hub_db                      display_order INT NOT NULL DEFAULT 0,
+v_exam_hub_db                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+v_exam_hub_db                  );
+v_exam_hub_db    
+v_exam_hub_db                  CREATE INDEX IF NOT EXISTS idx_import_item_assets_batch_order ON import_item_assets(batch_id, import_item_id, display_order);
+v_exam_hub_db    
+v_exam_backend    20260422 145804 database connection failed ERROR relation import_batches does not exist (SQLSTATE 42P01)
+v_exam_backend exited with code 1 (restarting)
+v_exam_hub_db     2026-04-22 145806.394 UTC [63] ERROR  relation import_batches does not exist
+v_exam_hub_db     2026-04-22 145806.394 UTC [63] STATEMENT
+v_exam_hub_db                  -- Chỉ chạy ALTER TABLE nếu bảng 'exams' đã tồn tại
+v_exam_hub_db                  DO $$ BEGIN
+v_exam_hub_db                      IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'exams') THEN
+v_exam_hub_db                          ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_positive;
+v_exam_hub_db                          ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_non_negative;
+v_exam_hub_db                          ALTER TABLE exams ADD CONSTRAINT ck_exam_attempts_non_negative CHECK (max_attempts_per_student = 0);
+v_exam_hub_db                      END IF;
+v_exam_hub_db                  END $$;
+v_exam_hub_db    
+v_exam_hub_db                  -- Tạo bảng mới nếu chưa có
+v_exam_hub_db                  CREATE TABLE IF NOT EXISTS import_item_assets (
+v_exam_hub_db                      id BIGSERIAL PRIMARY KEY,
+v_exam_hub_db                      batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+v_exam_hub_db                      import_item_id BIGINT REFERENCES import_items(id) ON DELETE SET NULL,
+v_exam_hub_db                      target attachment_target_enum NOT NULL DEFAULT 'unknown',
+v_exam_hub_db                      option_label VARCHAR(10),
+v_exam_hub_db                      file_url TEXT NOT NULL,
+v_exam_hub_db                      mime_type VARCHAR(100),
+v_exam_hub_db                      page_number INT,
+v_exam_hub_db                      display_order INT NOT NULL DEFAULT 0,
+v_exam_hub_db                      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+v_exam_hub_db                  );
+v_exam_hub_db    
+v_exam_hub_db                  CREATE INDEX IF NOT EXISTS idx_import_item_assets_batch_order ON import_item_assets(batch_id, import_item_id, display_order);
+v_exam_hub_db    
+v_exam_backend    20260422 145806 database connection failed ERROR relation import_batches does not exist (SQLSTATE 42P01)
+v_exam_backend exited with code 1 (restarting)

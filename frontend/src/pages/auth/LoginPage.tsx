@@ -1,23 +1,54 @@
-import { type FormEvent, useEffect, useState } from "react";
+import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { login } from "../../api";
 import { type Role, writeAuth } from "../../storage";
 import { Brand } from "../../shared/Brand";
 
+const roleCopy: Record<Role, { eyebrow: string; title: string; description: string; placeholder: string; password: string; message: string }> = {
+  admin: {
+    eyebrow: "Admin",
+    title: "Quản trị tài khoản",
+    description: "Dùng tài khoản admin để cấp và quản lý tài khoản giáo viên.",
+    placeholder: "VD: root",
+    password: "Mật khẩu admin",
+    message: "Chỉ tài khoản admin mới được cấp tài khoản giáo viên.",
+  },
+  teacher: {
+    eyebrow: "Giáo viên",
+    title: "Đăng nhập quản lý lớp thi",
+    description: "Tài khoản giáo viên do admin cấp.",
+    placeholder: "VD: gv-cntt-01",
+    password: "Mật khẩu giáo viên",
+    message: "Chỉ tài khoản giáo viên đã được cấp mới đăng nhập được.",
+  },
+  student: {
+    eyebrow: "Sinh viên / học sinh",
+    title: "Đăng nhập để làm bài",
+    description: "Tiến trình cũ sẽ được mở lại nếu đăng nhập cùng tài khoản trên trình duyệt này.",
+    placeholder: "VD: mã sinh viên hoặc email",
+    password: "Mật khẩu được cấp",
+    message: "Chỉ tài khoản sinh viên/học sinh đã được cấp mới đăng nhập được.",
+  },
+};
+
+function dashboardFor(role: Role) {
+  if (role === "admin") return "/admin";
+  if (role === "teacher") return "/teacher";
+  return "/student";
+}
+
 export function LoginPage({ role }: { role: Role }) {
   const navigate = useNavigate();
+  const copy = useMemo(() => roleCopy[role], [role]);
   const [account, setAccount] = useState("");
   const [password, setPassword] = useState("");
   const [isSigningIn, setIsSigningIn] = useState(false);
-  const [message, setMessage] = useState(
-    role === "teacher"
-      ? "Chỉ tài khoản giáo viên đã được cấp mới đăng nhập được."
-      : "Chỉ tài khoản sinh viên/học sinh đã được cấp mới đăng nhập được.",
-  );
+  const [message, setMessage] = useState(copy.message);
 
   useEffect(() => {
     sessionStorage.setItem("examhub:lastRole", role);
-  }, [role]);
+    setMessage(copy.message);
+  }, [copy.message, role]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -29,8 +60,8 @@ export function LoginPage({ role }: { role: Role }) {
     setMessage("Đang xác thực tài khoản...");
     try {
       const auth = await login({ username: account.trim(), password, role });
-      writeAuth({ account: auth.username, role, signedInAt: Date.now(), displayName: auth.displayName });
-      navigate(role === "teacher" ? "/teacher" : "/student");
+      writeAuth({ account: auth.username, role: auth.role, signedInAt: Date.now(), displayName: auth.displayName });
+      navigate(dashboardFor(auth.role));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Đăng nhập thất bại.");
     } finally {
@@ -39,18 +70,14 @@ export function LoginPage({ role }: { role: Role }) {
   }
 
   return (
-    <main className="login-page login-shell" aria-label={`Đăng nhập ${role === "teacher" ? "giáo viên" : "sinh viên"}`}>
+    <main className="login-page login-shell" aria-label={`Đăng nhập ${copy.eyebrow}`}>
       <section className="login-box form-box">
         <Brand />
         <form className="credential-form standalone" onSubmit={submit}>
           <div className="form-head">
-            <p className="eyebrow">{role === "teacher" ? "Giáo viên" : "Sinh viên / học sinh"}</p>
-            <h1>{role === "teacher" ? "Đăng nhập quản lý lớp thi" : "Đăng nhập để làm bài"}</h1>
-            <p>
-              {role === "teacher"
-                ? "Tài khoản giáo viên do admin cấp"
-                : "Tiến trình cũ sẽ được mở lại nếu đăng nhập cùng tài khoản trên trình duyệt này."}
-            </p>
+            <p className="eyebrow">{copy.eyebrow}</p>
+            <h1>{copy.title}</h1>
+            <p>{copy.description}</p>
           </div>
           <label htmlFor="accountInput">Tài khoản</label>
           <input
@@ -58,7 +85,7 @@ export function LoginPage({ role }: { role: Role }) {
             value={account}
             onChange={(event) => setAccount(event.target.value)}
             autoComplete="username"
-            placeholder={role === "teacher" ? "VD: gv-cntt-01" : "VD: lnit hoặc lawnguyenit"}
+            placeholder={copy.placeholder}
             required
           />
           <label htmlFor="passwordInput">Mật khẩu</label>
@@ -68,7 +95,7 @@ export function LoginPage({ role }: { role: Role }) {
             value={password}
             onChange={(event) => setPassword(event.target.value)}
             autoComplete="current-password"
-            placeholder={role === "teacher" ? "Mật khẩu giáo viên" : "Mật khẩu hoặc mã truy cập"}
+            placeholder={copy.password}
             required
           />
           <button className="primary-btn" type="submit" disabled={isSigningIn}>

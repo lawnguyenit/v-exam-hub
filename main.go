@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -13,17 +14,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5/pgxpool"
 	"website-exam/internal/accountdata"
 	"website-exam/internal/importdata"
 	"website-exam/internal/studentdata"
 	"website-exam/internal/teacherdata"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 func main() {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	db, err := connectDB(ctx)
+	db, err := connectDB(context.Background())
 	if err != nil {
 		log.Fatalf("database connection failed: %v", err)
 	}
@@ -45,6 +45,7 @@ func main() {
 	mux.HandleFunc("/api/student/attempts/progress", handleStudentAttemptProgress(db))
 	mux.HandleFunc("/api/student/attempts/submit", handleStudentAttemptSubmit(db))
 	mux.HandleFunc("/api/auth/login", handleAuthLogin(db))
+	mux.HandleFunc("/api/admin/teachers", handleAdminTeacherCreate(db))
 	mux.HandleFunc("/api/student/exams/", func(w http.ResponseWriter, r *http.Request) {
 		id := r.URL.Path[len("/api/student/exams/"):]
 		exam, ok, err := studentdata.ExamByID(r.Context(), db, id)
@@ -158,10 +159,16 @@ func main() {
 	mux.HandleFunc("/api/teacher/classes/import-students", handleTeacherClassStudentImport(db))
 	mux.HandleFunc("/api/teacher/students/password", handleTeacherStudentPasswordUpdate(db))
 
-	mux.HandleFunc("/", serveFrontend("frontend/dist"))
+	// mux.HandleFunc("/", serveFrontend("frontend/dist"))
 
-	log.Println("Server running at http://localhost:8080")
-	if err := http.ListenAndServe(":8080", mux); err != nil {
+	// log.Println("Server running at http://localhost:8080")
+	// if err := http.ListenAndServe(":8080", mux); err != nil {
+	// 	log.Fatal(err)
+	// }
+	// 2. Trong hàm main(), sửa đoạn ListenAndServe:
+	log.Println("Server running at :8080")
+	// Bọc mux bằng hàm enableCORS vừa tạo
+	if err := http.ListenAndServe(":8080", enableCORS(mux)); err != nil {
 		log.Fatal(err)
 	}
 }
@@ -292,7 +299,7 @@ func handleTeacherQuestionBank(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		items, err := teacherdata.QuestionBank(r.Context(), db)
+		items, err := teacherdata.QuestionBank(r.Context(), db, r.URL.Query().Get("account"))
 		if err != nil {
 			http.Error(w, "Không tải được ngân hàng câu hỏi: "+err.Error(), http.StatusBadRequest)
 			return
@@ -335,6 +342,26 @@ func handleAuthLogin(db *pgxpool.Pool) http.HandlerFunc {
 		result, err := accountdata.Authenticate(r.Context(), db, payload)
 		if err != nil {
 			http.Error(w, "Đăng nhập thất bại: "+err.Error(), http.StatusUnauthorized)
+			return
+		}
+		writeJSON(w, result)
+	}
+}
+
+func handleAdminTeacherCreate(db *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		var payload accountdata.TeacherCreateRequest
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			http.Error(w, "Khong doc duoc thong tin giao vien", http.StatusBadRequest)
+			return
+		}
+		result, err := accountdata.CreateTeacherAccount(r.Context(), db, payload)
+		if err != nil {
+			http.Error(w, "Khong tao duoc tai khoan giao vien: "+err.Error(), http.StatusBadRequest)
 			return
 		}
 		writeJSON(w, result)
@@ -497,52 +524,160 @@ func handleTeacherStudentPasswordUpdate(db *pgxpool.Pool) http.HandlerFunc {
 }
 
 func connectDB(ctx context.Context) (*pgxpool.Pool, error) {
-	databaseURL := os.Getenv("DATABASE_URL")
+	databaseURL := os.Getenv("DB_URL")
 	if databaseURL == "" {
-		databaseURL = "postgres://admin:123123@localhost:5432/v_exam_hub?sslmode=disable"
+		databaseURL = "postgres://admin:123@localhost:5432/v_exam_hub?sslmode=disable"
 	}
-	db, err := pgxpool.New(ctx, databaseURL)
-	if err != nil {
-		return nil, err
+	startupTimeout := 90 * time.Second
+	if raw := strings.TrimSpace(os.Getenv("DB_STARTUP_TIMEOUT")); raw != "" {
+		if parsed, err := time.ParseDuration(raw); err == nil && parsed > 0 {
+			startupTimeout = parsed
+		}
 	}
-	if err := db.Ping(ctx); err != nil {
-		db.Close()
-		return nil, err
+
+	deadlineCtx, cancel := context.WithTimeout(ctx, startupTimeout)
+	defer cancel()
+
+	var lastErr error
+	for attempt := 1; ; attempt++ {
+		attemptCtx, attemptCancel := context.WithTimeout(deadlineCtx, 5*time.Second)
+		db, err := pgxpool.New(attemptCtx, databaseURL)
+		if err == nil {
+			err = db.Ping(attemptCtx)
+		}
+		attemptCancel()
+
+		if err == nil {
+			if err := ensureCoreSchema(deadlineCtx, db); err != nil {
+				db.Close()
+				return nil, err
+			}
+			if err := ensureDatabaseCompatibility(deadlineCtx, db); err != nil {
+				db.Close()
+				return nil, err
+			}
+			log.Println("Database connected")
+			return db, nil
+		}
+
+		lastErr = err
+		if deadlineCtx.Err() != nil {
+			break
+		}
+		log.Printf("database not ready (attempt %d): %v", attempt, err)
+		select {
+		case <-time.After(2 * time.Second):
+		case <-deadlineCtx.Done():
+		}
 	}
-	if err := ensureDatabaseCompatibility(ctx, db); err != nil {
-		db.Close()
-		return nil, err
+
+	if deadlineCtx.Err() != nil && lastErr != nil {
+		return nil, fmt.Errorf("timed out waiting for database after %s: %w", startupTimeout, lastErr)
 	}
-	log.Println("Database connected")
-	return db, nil
+	return nil, lastErr
+}
+
+func ensureCoreSchema(ctx context.Context, db *pgxpool.Pool) error {
+	requiredTables := []string{
+		"roles",
+		"users",
+		"user_roles",
+		"student_profiles",
+		"teacher_profiles",
+		"classes",
+		"class_members",
+		"import_batches",
+		"import_items",
+		"question_bank",
+		"question_bank_options",
+		"exams",
+		"exam_questions",
+		"exam_targets",
+		"exam_attempts",
+	}
+
+	missing := make([]string, 0, len(requiredTables))
+	for _, tableName := range requiredTables {
+		exists, err := tableExists(ctx, db, tableName)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			missing = append(missing, tableName)
+		}
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf(
+			"missing core schema tables: %s. Bootstrap PostgreSQL bằng file D:\\v-exam-hub\\v-exam-hub-local-db.session.sql hoặc mount file này vào /docker-entrypoint-initdb.d trước khi chạy backend",
+			strings.Join(missing, ", "),
+		)
+	}
+	return nil
+}
+
+func tableExists(ctx context.Context, db *pgxpool.Pool, tableName string) (bool, error) {
+	var exists bool
+	err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.tables
+			WHERE table_schema = 'public' AND table_name = $1
+		)
+	`, tableName).Scan(&exists)
+	return exists, err
 }
 
 func ensureDatabaseCompatibility(ctx context.Context, db *pgxpool.Pool) error {
+	// 1. Khởi tạo các Type (ENUM) nếu chưa có
+	// Chúng ta bọc trong khối DO để tránh lỗi "already exists"
+	setupEnumsSQL := `
+        DO $$ BEGIN
+            IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'attachment_target_enum') THEN
+                CREATE TYPE attachment_target_enum AS ENUM ('question_body', 'option', 'explanation', 'unknown');
+            END IF;
+        END $$;
+    `
+	if _, err := db.Exec(ctx, setupEnumsSQL); err != nil {
+		return err
+	}
+
+	// 2. Cập nhật ENUM hiện có (Thêm giá trị mới nếu cần)
+	// Lệnh ADD VALUE IF NOT EXISTS chỉ chạy được từ Postgres 13+
+	if _, err := db.Exec(ctx, `ALTER TYPE exam_mode_enum ADD VALUE IF NOT EXISTS 'official'`); err != nil {
+		return err
+	}
 	if _, err := db.Exec(ctx, `ALTER TYPE exam_mode_enum ADD VALUE IF NOT EXISTS 'attendance'`); err != nil {
 		return err
 	}
+
+	// 3. Thực thi các lệnh tạo bảng và chỉnh sửa ràng buộc (Constraint)
+	// Lưu ý: Các bảng như 'exams' phải tồn tại trước khi chạy ALTER TABLE
 	_, err := db.Exec(ctx, `
-		DO $$ BEGIN
-			CREATE TYPE attachment_target_enum AS ENUM ('question_body', 'option', 'explanation', 'unknown');
-		EXCEPTION WHEN duplicate_object THEN NULL;
-		END $$;
-		ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_positive;
-		ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_non_negative;
-		ALTER TABLE exams ADD CONSTRAINT ck_exam_attempts_non_negative CHECK (max_attempts_per_student >= 0);
-		CREATE TABLE IF NOT EXISTS import_item_assets (
-			id BIGSERIAL PRIMARY KEY,
-			batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
-			import_item_id BIGINT REFERENCES import_items(id) ON DELETE SET NULL,
-			target attachment_target_enum NOT NULL DEFAULT 'unknown',
-			option_label VARCHAR(10),
-			file_url TEXT NOT NULL,
-			mime_type VARCHAR(100),
-			page_number INT,
-			display_order INT NOT NULL DEFAULT 0,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);
-		CREATE INDEX IF NOT EXISTS idx_import_item_assets_batch_order ON import_item_assets(batch_id, import_item_id, display_order);
-	`)
+        -- Chỉ chạy ALTER TABLE nếu bảng 'exams' đã tồn tại
+        DO $$ BEGIN
+            IF EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'exams') THEN
+                ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_positive;
+                ALTER TABLE exams DROP CONSTRAINT IF EXISTS ck_exam_attempts_non_negative;
+                ALTER TABLE exams ADD CONSTRAINT ck_exam_attempts_non_negative CHECK (max_attempts_per_student >= 0);
+            END IF;
+        END $$;
+
+        -- Tạo bảng mới nếu chưa có
+        CREATE TABLE IF NOT EXISTS import_item_assets (
+            id BIGSERIAL PRIMARY KEY,
+            batch_id BIGINT NOT NULL REFERENCES import_batches(id) ON DELETE CASCADE,
+            import_item_id BIGINT REFERENCES import_items(id) ON DELETE SET NULL,
+            target attachment_target_enum NOT NULL DEFAULT 'unknown',
+            option_label VARCHAR(10),
+            file_url TEXT NOT NULL,
+            mime_type VARCHAR(100),
+            page_number INT,
+            display_order INT NOT NULL DEFAULT 0,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_import_item_assets_batch_order ON import_item_assets(batch_id, import_item_id, display_order);
+    `)
 	return err
 }
 
@@ -670,4 +805,15 @@ func writeJSON(w http.ResponseWriter, value any) {
 		http.Error(w, "Không thể tải dữ liệu", http.StatusInternalServerError)
 		log.Println(err)
 	}
+}
+func enableCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Trong thực tế nên để domain thật
+		w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+		if r.Method == "OPTIONS" {
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

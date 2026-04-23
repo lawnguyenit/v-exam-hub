@@ -94,9 +94,9 @@ export function TeacherCreateExam() {
 
   const classQuery = useQuery({ queryKey: ["teacher-classes"], queryFn: getTeacherClasses });
   const questionBankQuery = useQuery({
-    queryKey: ["teacher-question-bank"],
-    queryFn: getTeacherQuestionBank,
-    enabled: stage === "compose",
+    queryKey: ["teacher-question-bank", auth?.account],
+    queryFn: () => getTeacherQuestionBank(auth?.account),
+    enabled: stage === "compose" && Boolean(auth?.account),
   });
   const editExamQuery = useQuery({
     queryKey: ["teacher-exam", editExamID],
