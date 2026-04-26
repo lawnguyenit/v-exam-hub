@@ -165,13 +165,142 @@
   gap: 8px;
 }
 
-.format-list span {
+.format-list span,
+.format-list button {
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--soft);
   padding: 6px 10px;
   font-weight: 800;
   color: var(--muted);
+}
+
+.format-list button {
+  display: grid;
+  gap: 2px;
+  min-width: 92px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+}
+
+.format-list button strong {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.format-list button small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.format-list button:hover,
+.format-list button:focus-visible,
+.format-list button.active {
+  border-color: var(--green);
+  background: #f2faf5;
+  color: var(--green);
+  outline: none;
+}
+
+.format-list button.active strong {
+  color: var(--green);
+}
+
+.format-guide-head {
+  display: grid;
+  gap: 4px;
+}
+
+.format-guide-head strong {
+  color: var(--ink);
+}
+
+.format-guide-head span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.import-help-layout {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: start;
+}
+
+.import-help-layout:not(.import-help-layout-open) {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: start;
+}
+
+.import-help-layout .create-form {
+  grid-column: auto;
+}
+
+.import-help-layout-open .create-form {
+  grid-column: 1 / span 2;
+}
+
+.import-guide-panel {
+  display: grid;
+  grid-column: 3 / span 2;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 22px;
+}
+
+.import-guide-panel-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.import-guide-panel-head h2 {
+  margin: 4px 0 0;
+  font-size: 1.7rem;
+}
+
+.ghost-btn.compact {
+  min-height: 38px;
+  padding: 8px 12px;
+}
+
+.import-guide-rules {
+  display: grid;
+  gap: 8px;
+}
+
+.import-guide-rules span {
+  border-left: 3px solid var(--green);
+  background: var(--soft);
+  border-radius: 0 8px 8px 0;
+  color: var(--ink);
+  line-height: 1.5;
+  padding: 10px 12px;
+}
+
+.import-guide-example {
+  display: grid;
+  gap: 10px;
+}
+
+.import-guide-example strong {
+  color: var(--ink);
+}
+
+.import-guide-example pre {
+  overflow: auto;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fbf8;
+  color: var(--ink);
+  font: 0.92rem/1.55 Consolas, "Courier New", monospace;
+  padding: 14px;
+  white-space: pre-wrap;
 }
 
 .pipeline-step,
@@ -1037,6 +1166,12 @@
     grid-template-columns: 1fr;
   }
 
+  .import-help-layout .create-form,
+  .import-help-layout-open .create-form,
+  .import-guide-panel {
+    grid-column: auto;
+  }
+
   .question-bank-picker {
     position: static;
   }
@@ -1098,5 +1233,13 @@
 
   .approval-modal-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .format-list button {
+    min-width: calc(50% - 4px);
+  }
+
+  .import-guide-panel-head {
+    display: grid;
   }
 }

@@ -1,9 +1,9 @@
 import type { FormEvent } from "react";
 import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { Navigate } from "react-router-dom";
 import { importTeacherClassStudents, importTeacherClassStudentsFile, type StudentImportResult, updateTeacherStudentPassword } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
-import { Brand } from "../../shared/Brand";
+import { PageShell } from "../../shared/PageShell";
 
 const manualTemplate = "Mã SV,Họ tên,Email,SĐT,Tài khoản,Mật khẩu\n";
 
@@ -70,25 +70,7 @@ export function TeacherStudents() {
   }
 
   return (
-    <>
-      <header className="teacher-topbar">
-        <Brand />
-        <nav className="teacher-nav" aria-label="Điều hướng giáo viên">
-          <Link className="nav-tab" to="/teacher">Dashboard</Link>
-          <Link className="nav-tab" to="/teacher/create">Tạo bài kiểm tra</Link>
-          <Link className="nav-tab" to="/teacher/question-bank">Đề cương</Link>
-          <Link className="nav-tab" to="/teacher/classes">Lớp</Link>
-          <Link className="nav-tab active" to="/teacher/students">Sinh viên</Link>
-        </nav>
-        <div className="account-chip">
-          <span className="avatar">{auth.account.slice(0, 2).toUpperCase()}</span>
-          <div>
-            <strong>Giáo viên</strong>
-            <small>{auth.account}</small>
-          </div>
-        </div>
-      </header>
-
+    <PageShell backTo="/teacher">
       <main className="teacher-dashboard teacher-dashboard-single">
         <section className="teacher-workspace">
           <div className="dashboard-hero">
@@ -169,7 +151,7 @@ export function TeacherStudents() {
         </section>
       </main>
       {result && <StudentImportResultModal result={result} onClose={() => setResult(undefined)} />}
-    </>
+    </PageShell>
   );
 }
 

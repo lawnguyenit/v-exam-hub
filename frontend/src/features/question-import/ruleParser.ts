@@ -47,7 +47,7 @@ const embeddedQuestionPattern = /\s+((?:c.{0,4}u|question|q)\s*\d{1,4}\s*[:.)/\]
 const optionLinePattern = /^\s*([A-H])\s*[.)\]:-]?\s+(.+)$/;
 const optionLabelOnlyPattern = /^\s*([A-H])\s*[.)\]:-]\s*$/;
 const lowercaseListLinePattern = /^\s*[a-h]\s*[-.)]\s+.+$/;
-const imagePlaceholderPattern = /^\s*\[Hình\s+\d+\]\s*$/;
+const imagePlaceholderPattern = /^\s*\[H(?:ình|inh)\s+\d+(?:[^\]]*)?\]\s*$/i;
 const selectOnePattern = /^\s*(?:select\s+one|chọn\s+một|chon\s+mot)\s*:?$/i;
 const answerLinePattern = /^\s*(?:đáp\s*án|dap\s*an|đ\/a|d\/a|answer|key)\s*[:.)\]-]?\s*(.+)$/i;
 const redAnswerLinePattern = /^\s*\[đáp án màu đỏ\]\s*(.+)$/i;
@@ -296,9 +296,12 @@ function scoreQuestion(draft: DraftQuestion): ParsedQuestion {
   if (content.length >= 12) confidence += 25;
   else warnings.push("Nội dung câu hỏi quá ngắn hoặc bị tách sai.");
 
+  const binaryChoice = isBinaryChoiceQuestion(draft.options);
   if (draft.options.length >= 4) {
     confidence += 30;
     if (draft.options.length > 4) warnings.push("Co hon 4 lua chon, can kiem tra cau nay co bi dinh dong hay khong.");
+  } else if (binaryChoice) {
+    confidence += 30;
   }
   else if (draft.options.length >= 2) {
     confidence += 18;
@@ -358,6 +361,14 @@ function applyCrossQuestionWarnings(questions: ParsedQuestion[]): ParsedQuestion
       ],
     };
   });
+}
+
+function isBinaryChoiceQuestion(options: ParsedOption[]) {
+  if (options.length !== 2) return false;
+  const joined = normalizeAnswerText(`${options[0].content} ${options[1].content}`);
+  return (joined.includes("dung") && joined.includes("sai")) ||
+    (joined.includes("đúng") && joined.includes("sai")) ||
+    (joined.includes("true") && joined.includes("false"));
 }
 
 function duplicateQuestionKey(question: ParsedQuestion) {

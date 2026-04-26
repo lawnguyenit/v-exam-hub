@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -39,7 +40,7 @@ var (
 	optionLinePattern            = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]?\s+(.+)$`)
 	optionLabelOnlyPattern       = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]\s*$`)
 	lowercaseListLinePattern     = regexp.MustCompile(`^\s*[a-h]\s*[-.)]\s+.+$`)
-	imagePlaceholderPattern      = regexp.MustCompile(`^\s*\[Hình\s+\d+\]\s*$`)
+	imagePlaceholderPattern      = regexp.MustCompile(`(?i)^\s*\[H(?:ình|inh)\s+\d+(?:[^\]]*)?\]\s*$`)
 	selectOnePattern             = regexp.MustCompile(`(?i)^\s*(?:select\s+one|chọn\s+một|chon\s+mot)\s*:?$`)
 	answerLinePattern            = regexp.MustCompile(`(?i)^\s*(?:đáp\s*án|dap\s*an|đ/a|d/a|answer|key)\s*[:.)\]-]?\s*(.+)$`)
 	redAnswerLinePattern         = regexp.MustCompile(`(?i)^\s*\[đáp án màu đỏ\]\s*(.+)$`)
@@ -154,9 +155,9 @@ func ParseUpload(file multipart.File, header *multipart.FileHeader) (ParseUpload
 		File:       FileInfo{Name: header.Filename, Size: header.Size, Kind: kind},
 	}
 
-	text, extract := extractText(kind, data)
+	text, extract, assets := extractContent(kind, data)
 	result.Extract = extract
-	result.Assets = extractAssets(kind, data)
+	result.Assets = assets
 	if result.Extract.ImageCount == 0 && len(result.Assets) > 0 {
 		result.Extract.ImageCount = len(result.Assets)
 	}
@@ -189,28 +190,27 @@ func ContentFingerprint(text string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-func extractText(kind string, data []byte) (string, ExtractInfo) {
+func extractContent(kind string, data []byte) (string, ExtractInfo, []ExtractedAsset) {
 	switch kind {
 	case "txt", "csv":
-		return cleanText(data), ExtractInfo{Status: "text_extracted"}
+		return cleanText(data), ExtractInfo{Status: "text_extracted"}, nil
 	case "docx":
-		images := inspectDocxMedia(data)
-		text, err := extractDocx(data)
+		text, assets, images, err := extractDocxPackage(data)
 		if err != nil {
-			return "", ExtractInfo{Status: "failed", Warning: "DOCX chưa tách được nội dung: " + err.Error()}
+			return "", ExtractInfo{Status: "failed", Warning: "DOCX chưa tách được nội dung: " + err.Error()}, nil
 		}
-		return text, ExtractInfo{Status: "text_extracted", ImageCount: images}
+		return text, ExtractInfo{Status: "text_extracted", ImageCount: images}, assets
 	case "doc":
 		images := inspectEmbeddedImages(data)
 		if bytes.HasPrefix(data, oleDocumentHeader) {
 			return extractLegacyDoc(data, images)
 		}
-		return "", ExtractInfo{Status: "unsupported", ImageCount: images, Warning: "File .doc này không đúng header OLE cũ nên server chưa có bộ đọc phù hợp."}
+		return "", ExtractInfo{Status: "unsupported", ImageCount: images, Warning: "File .doc này không đúng header OLE cũ nên server chưa có bộ đọc phù hợp."}, nil
 	case "pdf":
 		text, err := extractPDF(data)
 		pages, images, fonts := inspectPDF(data)
 		if err == nil && strings.TrimSpace(text) != "" {
-			return text, ExtractInfo{Status: "text_extracted", PageEstimate: pages, ImageCount: images}
+			return text, ExtractInfo{Status: "text_extracted", PageEstimate: pages, ImageCount: images}, nil
 		}
 		if images > 0 && fonts == 0 {
 			return "", ExtractInfo{
@@ -219,11 +219,11 @@ func extractText(kind string, data []byte) (string, ExtractInfo) {
 				ImageCount:   images,
 				PageEstimate: pages,
 				Warning:      "PDF này giống dạng scan ảnh nên cần OCR trước khi parser local chạy được.",
-			}
+			}, nil
 		}
-		return "", ExtractInfo{Status: "failed", PageEstimate: pages, Warning: "PDF chưa tách được text. Cần thêm OCR hoặc bộ extract PDF mạnh hơn."}
+		return "", ExtractInfo{Status: "failed", PageEstimate: pages, Warning: "PDF chưa tách được text. Cần thêm OCR hoặc bộ extract PDF mạnh hơn."}, nil
 	default:
-		return "", ExtractInfo{Status: "unsupported", Warning: "Định dạng này chưa được server hỗ trợ ở bước import đầu tiên."}
+		return "", ExtractInfo{Status: "unsupported", Warning: "Định dạng này chưa được server hỗ trợ ở bước import đầu tiên."}, nil
 	}
 }
 
@@ -242,21 +242,21 @@ func sniffFileKind(extension string, data []byte) string {
 	return extension
 }
 
-func extractLegacyDoc(data []byte, imageCount int) (string, ExtractInfo) {
+func extractLegacyDoc(data []byte, imageCount int) (string, ExtractInfo, []ExtractedAsset) {
 	converter, err := findOfficeConverter()
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, err.Error())
+		return "", needsLegacyDocConversionInfo(imageCount, err.Error()), scanEmbeddedImageAssets(data)
 	}
 
 	workDir, err := os.MkdirTemp("", "exam-doc-convert-*")
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, err.Error())
+		return "", needsLegacyDocConversionInfo(imageCount, err.Error()), scanEmbeddedImageAssets(data)
 	}
 	defer os.RemoveAll(workDir)
 
 	sourcePath := filepath.Join(workDir, "source.doc")
 	if err := os.WriteFile(sourcePath, data, 0o600); err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, err.Error())
+		return "", needsLegacyDocConversionInfo(imageCount, err.Error()), scanEmbeddedImageAssets(data)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), legacyDocConversionTimeout)
@@ -264,30 +264,29 @@ func extractLegacyDoc(data []byte, imageCount int) (string, ExtractInfo) {
 	cmd := exec.CommandContext(ctx, converter, "--headless", "--convert-to", "docx", "--outdir", workDir, sourcePath)
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", needsLegacyDocConversionInfo(imageCount, "LibreOffice convert quá thời gian cho phép")
+		return "", needsLegacyDocConversionInfo(imageCount, "LibreOffice convert quá thời gian cho phép"), scanEmbeddedImageAssets(data)
 	}
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, strings.TrimSpace(string(output)))
+		return "", needsLegacyDocConversionInfo(imageCount, strings.TrimSpace(string(output))), scanEmbeddedImageAssets(data)
 	}
 
 	convertedPath := filepath.Join(workDir, "source.docx")
 	converted, err := os.ReadFile(convertedPath)
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, "không tìm thấy file DOCX sau khi convert: "+err.Error())
+		return "", needsLegacyDocConversionInfo(imageCount, "không tìm thấy file DOCX sau khi convert: "+err.Error()), scanEmbeddedImageAssets(data)
 	}
-	text, err := extractDocx(converted)
-	convertedImages := inspectDocxMedia(converted)
+	text, assets, convertedImages, err := extractDocxPackage(converted)
 	if convertedImages > imageCount {
 		imageCount = convertedImages
 	}
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, "DOC đã convert nhưng chưa tách được text: "+err.Error())
+		return "", needsLegacyDocConversionInfo(imageCount, "DOC đã convert nhưng chưa tách được text: "+err.Error()), scanEmbeddedImageAssets(data)
 	}
 	return text, ExtractInfo{
 		Status:     "text_extracted",
 		ImageCount: imageCount,
 		Warning:    "DOC cũ đã được convert sang DOCX bằng LibreOffice trước khi tách text.",
-	}
+	}, assets
 }
 
 func needsLegacyDocConversionInfo(imageCount int, reason string) ExtractInfo {
@@ -351,25 +350,106 @@ func cleanText(data []byte) string {
 }
 
 func extractDocx(data []byte) (string, error) {
+	text, _, _, err := extractDocxPackage(data)
+	return text, err
+}
+
+func extractDocxPackage(data []byte) (string, []ExtractedAsset, int, error) {
 	reader, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return "", err
+		return "", nil, 0, err
 	}
+	relationships := readDocxRelationships(reader)
+	mediaByPath := readDocxMedia(reader)
 	for _, file := range reader.File {
 		if file.Name != "word/document.xml" {
 			continue
 		}
 		rc, err := file.Open()
 		if err != nil {
-			return "", err
+			return "", nil, 0, err
 		}
 		defer rc.Close()
-		return extractDocxXML(rc)
+		text, assets, count, err := extractDocxXML(rc, relationships, mediaByPath)
+		return text, assets, count, err
 	}
-	return "", errors.New("word/document.xml not found")
+	return "", nil, 0, errors.New("word/document.xml not found")
 }
 
-func extractDocxXML(reader io.Reader) (string, error) {
+func readDocxRelationships(reader *zip.Reader) map[string]string {
+	relationships := map[string]string{}
+	for _, file := range reader.File {
+		if file.Name != "word/_rels/document.xml.rels" {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			return relationships
+		}
+		defer rc.Close()
+		decoder := xml.NewDecoder(rc)
+		for {
+			token, err := decoder.Token()
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			if err != nil {
+				return relationships
+			}
+			element, ok := token.(xml.StartElement)
+			if !ok || element.Name.Local != "Relationship" {
+				continue
+			}
+			var id, target string
+			for _, attr := range element.Attr {
+				switch attr.Name.Local {
+				case "Id":
+					id = attr.Value
+				case "Target":
+					target = attr.Value
+				}
+			}
+			if id == "" || target == "" {
+				continue
+			}
+			if strings.HasPrefix(target, "/") {
+				target = strings.TrimPrefix(target, "/")
+			} else {
+				target = path.Clean(path.Join("word", target))
+			}
+			relationships[id] = target
+		}
+		break
+	}
+	return relationships
+}
+
+func readDocxMedia(reader *zip.Reader) map[string]ExtractedAsset {
+	media := map[string]ExtractedAsset{}
+	for _, file := range reader.File {
+		if !strings.HasPrefix(file.Name, "word/media/") {
+			continue
+		}
+		rc, err := file.Open()
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(io.LimitReader(rc, maxUploadBytes))
+		rc.Close()
+		if err != nil || len(content) == 0 {
+			continue
+		}
+		media[path.Clean(file.Name)] = ExtractedAsset{
+			FileName: filepath.Base(file.Name),
+			MimeType: mimeTypeForAsset(file.Name, content),
+			Size:     len(content),
+			Data:     content,
+		}
+	}
+	return media
+}
+
+func extractDocxXML(reader io.Reader, relationships map[string]string, mediaByPath map[string]ExtractedAsset) (string, []ExtractedAsset, int, error) {
 	decoder := xml.NewDecoder(reader)
 	var builder strings.Builder
 	var paragraph strings.Builder
@@ -380,6 +460,7 @@ func extractDocxXML(reader io.Reader) (string, error) {
 	paragraphDefaultRed := false
 	paragraphRed := false
 	imageCount := 0
+	orderedAssets := []ExtractedAsset{}
 	flushParagraph := func() {
 		text := strings.Join(strings.Fields(paragraph.String()), " ")
 		if text != "" {
@@ -396,13 +477,24 @@ func extractDocxXML(reader io.Reader) (string, error) {
 		paragraphDefaultRed = false
 		paragraphRed = false
 	}
+	appendImagePlaceholder := func(relID string) {
+		imageCount++
+		if target := relationships[relID]; target != "" {
+			if asset, ok := mediaByPath[path.Clean(target)]; ok {
+				orderedAssets = append(orderedAssets, asset)
+			}
+		}
+		paragraph.WriteString(" [Hình ")
+		paragraph.WriteString(strconv.Itoa(imageCount))
+		paragraph.WriteString("] ")
+	}
 	for {
 		token, err := decoder.Token()
 		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {
-			return "", err
+			return "", orderedAssets, imageCount, err
 		}
 		switch typed := token.(type) {
 		case xml.StartElement:
@@ -427,11 +519,13 @@ func extractDocxXML(reader io.Reader) (string, error) {
 			if typed.Name.Local == "t" {
 				inText = true
 			}
-			if typed.Name.Local == "drawing" || typed.Name.Local == "pict" {
-				imageCount++
-				paragraph.WriteString(" [Hình ")
-				paragraph.WriteString(strconv.Itoa(imageCount))
-				paragraph.WriteString("] ")
+			if typed.Name.Local == "blip" || typed.Name.Local == "imagedata" {
+				for _, attr := range typed.Attr {
+					if attr.Name.Local == "embed" || attr.Name.Local == "link" || attr.Name.Local == "id" {
+						appendImagePlaceholder(attr.Value)
+						break
+					}
+				}
 			}
 			if typed.Name.Local == "br" {
 				flushParagraph()
@@ -464,7 +558,12 @@ func extractDocxXML(reader io.Reader) (string, error) {
 	if paragraph.Len() > 0 {
 		flushParagraph()
 	}
-	return builder.String(), nil
+	if len(orderedAssets) == 0 && imageCount > 0 {
+		for _, asset := range mediaByPath {
+			orderedAssets = append(orderedAssets, asset)
+		}
+	}
+	return builder.String(), orderedAssets, imageCount, nil
 }
 
 func isRedWordColor(element xml.StartElement) bool {
@@ -1033,11 +1132,14 @@ func scoreQuestion(draft draftQuestion) ParsedQuestion {
 		warnings = append(warnings, "Nội dung câu hỏi quá ngắn hoặc bị tách sai.")
 	}
 
+	binaryChoice := isBinaryChoiceQuestion(draft.options)
 	if len(draft.options) >= 4 {
 		confidence += 30
 		if len(draft.options) > 4 {
 			warnings = append(warnings, "Có hơn 4 lựa chọn, cần giáo viên xác nhận câu này không bị dính thêm dòng.")
 		}
+	} else if binaryChoice {
+		confidence += 30
 	} else if len(draft.options) >= 2 {
 		confidence += 18
 		warnings = append(warnings, "Ít hơn 4 lựa chọn, cần kiểm tra.")
@@ -1127,6 +1229,16 @@ func applyCrossQuestionWarnings(questions []ParsedQuestion) []ParsedQuestion {
 		questions[index].Warnings = append(questions[index].Warnings, "Trùng số câu và nội dung với một câu khác. Không tự xoá để tránh mất câu thật; giáo viên cần gộp, đổi số, hoặc xoá bản thừa.")
 	}
 	return questions
+}
+
+func isBinaryChoiceQuestion(options []ParsedOption) bool {
+	if len(options) != 2 {
+		return false
+	}
+	joined := normalizeAnswerText(options[0].Content + " " + options[1].Content)
+	return (strings.Contains(joined, "dung") && strings.Contains(joined, "sai")) ||
+		(strings.Contains(joined, "đúng") && strings.Contains(joined, "sai")) ||
+		(strings.Contains(joined, "true") && strings.Contains(joined, "false"))
 }
 
 func duplicateQuestionKey(question ParsedQuestion) string {

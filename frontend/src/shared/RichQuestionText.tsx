@@ -1,6 +1,6 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 
-const imageTokenPattern = /\[H(?:ình|inh)\s+(\d+)\]/gi;
+const imageTokenPattern = /\[H(?:ình|inh)\s+(\d+)(?:[^\]]*)?\]/gi;
 
 export function RichQuestionText({
   text,
@@ -28,12 +28,11 @@ function renderQuestionText(text: string, assetBatchId?: number) {
     const order = Number(match[1]);
     if (assetBatchId && Number.isFinite(order) && order > 0) {
       parts.push(
-        <img
-          alt={`Hinh ${order}`}
-          className="question-inline-image"
+        <InlineQuestionImage
           key={`asset-${order}-${index}`}
-          loading="lazy"
-          src={`/api/teacher/import/assets/${assetBatchId}/${order}`}
+          order={order}
+          token={match[0]}
+          url={`/api/teacher/import/assets/${assetBatchId}/${order}`}
         />,
       );
     } else {
@@ -46,4 +45,18 @@ function renderQuestionText(text: string, assetBatchId?: number) {
     parts.push(text.slice(cursor));
   }
   return parts.length ? parts : text;
+}
+
+function InlineQuestionImage({ order, token, url }: { order: number; token: string; url: string }) {
+  const [failed, setFailed] = useState(false);
+  if (failed) return <span className="question-image-token">{token}</span>;
+  return (
+    <img
+      alt={`Hinh ${order}`}
+      className="question-inline-image"
+      loading="lazy"
+      onError={() => setFailed(true)}
+      src={url}
+    />
+  );
 }

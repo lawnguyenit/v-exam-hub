@@ -1,6 +1,8 @@
 package importdata
 
 import (
+	"archive/zip"
+	"bytes"
 	"mime/multipart"
 	"os"
 	"path/filepath"
@@ -161,6 +163,86 @@ D. 12 MHz, 2
 	}
 }
 
+func TestParseTextPassesBinaryTrueFalseQuestion(t *testing.T) {
+	source := `
+Cau 1: Cong P0 cua 8051 can tro keo len ngoai khi dung lam cong xuat nhap.
+A. Dung
+B. Sai
+Dap an: A
+`
+
+	questions := ParseText(source)
+	if len(questions) != 1 {
+		t.Fatalf("expected 1 question, got %d", len(questions))
+	}
+	if questions[0].Status != "pass" {
+		t.Fatalf("binary true/false question should pass, got status=%s confidence=%d warnings=%v", questions[0].Status, questions[0].Confidence, questions[0].Warnings)
+	}
+}
+
+func TestParseUploadDocxOrdersAssetsByImageOccurrence(t *testing.T) {
+	var buffer bytes.Buffer
+	archive := zip.NewWriter(&buffer)
+	writeZipFile(t, archive, "word/document.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+ xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main"
+ xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+ <w:body>
+  <w:p><w:r><w:t>Cau 1: Cau hoi co anh thu hai truoc?</w:t></w:r><w:r><w:drawing><a:blip r:embed="rId2"/></w:drawing></w:r></w:p>
+  <w:p><w:r><w:t>A. Dung</w:t></w:r></w:p>
+  <w:p><w:r><w:t>B. Sai</w:t></w:r></w:p>
+  <w:p><w:r><w:t>Dap an: A</w:t></w:r></w:p>
+  <w:p><w:r><w:t>Cau 2: Cau hoi co anh thu nhat?</w:t></w:r><w:r><w:drawing><a:blip r:embed="rId1"/></w:drawing></w:r></w:p>
+  <w:p><w:r><w:t>A. Dung</w:t></w:r></w:p>
+  <w:p><w:r><w:t>B. Sai</w:t></w:r></w:p>
+  <w:p><w:r><w:t>Dap an: B</w:t></w:r></w:p>
+ </w:body>
+</w:document>`)
+	writeZipFile(t, archive, "word/_rels/document.xml.rels", `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+ <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image1.png"/>
+ <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" Target="media/image2.png"/>
+</Relationships>`)
+	writeZipFile(t, archive, "word/media/image1.png", string([]byte{0x89, 'P', 'N', 'G', 1}))
+	writeZipFile(t, archive, "word/media/image2.png", string([]byte{0x89, 'P', 'N', 'G', 2}))
+	if err := archive.Close(); err != nil {
+		t.Fatalf("close docx archive: %v", err)
+	}
+
+	result, err := ParseUpload(readSeekCloser{Reader: bytes.NewReader(buffer.Bytes())}, &multipart.FileHeader{Filename: "fixture.docx", Size: int64(buffer.Len())})
+	if err != nil {
+		t.Fatalf("parse docx fixture: %v", err)
+	}
+	if result.Extract.ImageCount != 2 || len(result.Assets) != 2 {
+		t.Fatalf("expected two ordered images, imageCount=%d assets=%#v", result.Extract.ImageCount, result.Assets)
+	}
+	if result.Assets[0].FileName != "image2.png" || result.Assets[1].FileName != "image1.png" {
+		t.Fatalf("assets should follow document occurrence order, got %#v", result.Assets)
+	}
+	if len(result.Questions) != 2 || !strings.Contains(result.Questions[0].Content, "[H") || !strings.Contains(result.Questions[1].Content, "[H") {
+		t.Fatalf("expected image placeholders in both questions, got %#v", result.Questions)
+	}
+}
+
+func writeZipFile(t *testing.T, archive *zip.Writer, name string, content string) {
+	t.Helper()
+	writer, err := archive.Create(name)
+	if err != nil {
+		t.Fatalf("create zip file %s: %v", name, err)
+	}
+	if _, err := writer.Write([]byte(content)); err != nil {
+		t.Fatalf("write zip file %s: %v", name, err)
+	}
+}
+
+type readSeekCloser struct {
+	*bytes.Reader
+}
+
+func (reader readSeekCloser) Close() error {
+	return nil
+}
+
 func TestParseUploadTutuongDocxDoesNotMergeAllQuestions(t *testing.T) {
 	result := parseFixtureUpload(t, filepath.Join("input_test", "tutuong.docx"))
 	if result.Summary.Total < 100 {
@@ -178,6 +260,19 @@ func TestParseUploadTutuongDocxDoesNotMergeAllQuestions(t *testing.T) {
 	}
 	if len(first.Options) != 4 {
 		t.Fatalf("expected first question to have 4 options, got %#v", first.Options)
+	}
+}
+
+func TestParseUploadSchoolELearningFormDocx(t *testing.T) {
+	result := parseFixtureUpload(t, filepath.Join("input_test", "FORM_DE_E_LEARNING.docx"))
+	if result.Extract.Status != "text_extracted" {
+		t.Fatalf("expected school form DOCX to extract text, got extract=%#v", result.Extract)
+	}
+	if result.Summary.Total == 0 {
+		t.Fatalf("expected at least one parsed question from school form, got summary=%#v warning=%q", result.Summary, result.Extract.Warning)
+	}
+	if result.Extract.ImageCount > 0 && len(result.Assets) == 0 {
+		t.Fatalf("image placeholders need ordered assets, imageCount=%d assets=%d", result.Extract.ImageCount, len(result.Assets))
 	}
 }
 

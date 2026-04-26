@@ -22,7 +22,123 @@ import { useRequiredAuth } from "../../lib/auth";
 import { PageShell } from "../../shared/PageShell";
 
 const emptyFileState = "Chưa có file";
-const acceptedFormats = ["TXT", "CSV", "DOCX", "DOC cũ", "PDF text", "PDF scan"];
+
+type ImportGuideID = "txt" | "csv" | "docx" | "doc" | "pdfText" | "pdfScan";
+
+type ImportGuide = {
+  id: ImportGuideID;
+  label: string;
+  status?: "demo";
+  title: string;
+  summary: string;
+  rules: string[];
+  example: string;
+};
+
+const importGuides: ImportGuide[] = [
+  {
+    id: "txt",
+    label: "TXT",
+    title: "TXT thuần",
+    summary: "Phù hợp khi giáo viên copy đề từ Word hoặc hệ thống cũ rồi lưu thành text.",
+    rules: [
+      "Mỗi câu nên bắt đầu bằng Câu 1:, Câu 1. hoặc 1.",
+      "Lựa chọn nên dùng A., B., C., D. hoặc A), B), C), D).",
+      "Đáp án đặt ngay sau câu bằng Đáp án: A hoặc Answer: A.",
+    ],
+    example: `Câu 1: Thiết bị nào dùng để lưu trữ dữ liệu lâu dài?
+A. RAM
+B. Ổ cứng
+C. CPU
+D. Màn hình
+Đáp án: B`,
+  },
+  {
+    id: "csv",
+    label: "CSV",
+    title: "CSV bảng câu hỏi",
+    summary: "Dùng khi đã có danh sách câu hỏi dạng bảng và muốn import nhanh, ít lỗi.",
+    rules: [
+      "Dòng đầu nên có tên cột: question,A,B,C,D,answer.",
+      "Mỗi dòng là một câu; đáp án chỉ ghi A, B, C hoặc D.",
+      "Nếu nội dung có dấu phẩy, hãy đặt ô đó trong dấu nháy kép.",
+    ],
+    example: `question,A,B,C,D,answer
+"2 + 2 bằng bao nhiêu?","3","4","5","6",B`,
+  },
+  {
+    id: "docx",
+    label: "DOCX",
+    title: "Word DOCX",
+    summary: "Định dạng nên ưu tiên cho đề có tiếng Việt, bảng hoặc hình ảnh.",
+    rules: [
+      "Giữ câu hỏi, lựa chọn và đáp án gần nhau trong cùng một cụm nội dung.",
+      "Hình ảnh nên nằm ngay dưới câu hỏi hoặc ngay dưới lựa chọn liên quan.",
+      "Có thể đánh dấu đáp án bằng dòng Đáp án: A hoặc tô đỏ lựa chọn đúng nếu đề gốc dùng kiểu đó.",
+    ],
+    example: `Câu 1: Quan sát hình sau và chọn phát biểu đúng.
+[Hình minh hoạ nằm ngay dưới câu]
+A. Phát biểu thứ nhất
+B. Phát biểu thứ hai
+C. Phát biểu thứ ba
+D. Phát biểu thứ tư
+Đáp án: C`,
+  },
+  {
+    id: "doc",
+    label: "DOC cũ",
+    title: "Word DOC cũ",
+    summary: "Hệ thống sẽ cố chuyển DOC cũ sang DOCX trước khi tách câu.",
+    rules: [
+      "Nên dùng khi chỉ còn file Word cũ; nếu có thể, hãy lưu lại thành DOCX để ổn định hơn.",
+      "Không dùng textbox hoặc layout nhiều cột cho phần câu hỏi chính.",
+      "Bảng và hình có thể cần kiểm tra lại sau khi import.",
+    ],
+    example: `1. Câu hỏi có thể viết theo số thứ tự
+A. Lựa chọn A
+B. Lựa chọn B
+C. Lựa chọn C
+D. Lựa chọn D
+Đáp án: D`,
+  },
+  {
+    id: "pdfText",
+    label: "PDF text",
+    status: "demo",
+    title: "PDF có text",
+    summary: "Đang ở mức demo. PDF xuất từ Word có thể tách được chữ, nhưng bảng, hình và bố cục nhiều cột vẫn cần duyệt kỹ.",
+    rules: [
+      "PDF nên có text thật, không phải ảnh scan.",
+      "Tránh đề chia nhiều cột vì thứ tự câu có thể bị đảo khi tách text.",
+      "Câu có bảng hoặc hình cần được giáo viên kiểm tra lại ở bước duyệt.",
+    ],
+    example: `Câu 1. Nội dung câu hỏi
+A. Lựa chọn A
+B. Lựa chọn B
+C. Lựa chọn C
+D. Lựa chọn D
+Đáp án: A`,
+  },
+  {
+    id: "pdfScan",
+    label: "PDF scan",
+    status: "demo",
+    title: "PDF scan",
+    summary: "Đang ở mức demo. PDF scan cần OCR nên kết quả phụ thuộc mạnh vào chất lượng ảnh, độ thẳng trang và bố cục đề.",
+    rules: [
+      "Ảnh scan càng rõ, thẳng trang, ít nhiễu thì kết quả càng ổn.",
+      "Câu có hình, bảng hoặc công thức nên kiểm tra thủ công sau khi OCR.",
+      "Nếu OCR ra thiếu chữ hoặc sai thứ tự, nên sửa ở bước nguồn đề trước khi lưu.",
+    ],
+    example: `Sau OCR, hệ thống cần nhìn thấy dạng gần như:
+Câu 1: ...
+A. ...
+B. ...
+C. ...
+D. ...
+Đáp án: ...`,
+  },
+];
 
 type FileKind = "none" | "text" | "needs-ocr" | "needs-conversion" | "unsupported";
 type ImportTab = "source" | "results" | "review";
@@ -99,6 +215,7 @@ export function TeacherCreateExam() {
   const [duplicateCandidates, setDuplicateCandidates] = useState<ImportDuplicateCandidate[]>([]);
   const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
   const [mergeTargetBatchID, setMergeTargetBatchID] = useState<number | undefined>();
+  const [activeImportGuideID, setActiveImportGuideID] = useState<ImportGuideID | undefined>();
 
   const classQuery = useQuery({ queryKey: ["teacher-classes"], queryFn: getTeacherClasses });
   const questionBankQuery = useQuery({
@@ -153,6 +270,7 @@ export function TeacherCreateExam() {
 
   if (!auth) return <Navigate to="/" replace />;
   const account = auth.account;
+  const activeImportGuide = importGuides.find((guide) => guide.id === activeImportGuideID);
 
   function chooseSource(nextSource: CreateSource) {
     setSource(nextSource);
@@ -446,7 +564,7 @@ export function TeacherCreateExam() {
         )}
 
         {stage === "import" && (
-          <section className="create-layout create-layout-single">
+          <section className={`create-layout import-help-layout ${activeImportGuide ? "import-help-layout-open" : ""}`}>
             <form className="create-form" onSubmit={submitImport}>
               <div className="label-with-help">
                 <label htmlFor="examFile">File đề cương</label>
@@ -464,14 +582,30 @@ export function TeacherCreateExam() {
                 onChange={(event) => receiveSourceFile(event.target.files?.[0])}
               />
               <p className="form-note">File đề cương sẽ được tách câu, duyệt pass, rồi chuyển tiếp sang bước tạo bài kiểm tra.</p>
-              <div className="format-list" aria-label="Định dạng hỗ trợ">
-                {acceptedFormats.map((format) => <span key={format}>{format}</span>)}
+              <div className="format-guide-head">
+                <strong>Định dạng hỗ trợ</strong>
+                <span>Ấn vào từng định dạng để xem hướng dẫn import đúng.</span>
+              </div>
+              <div className="format-list format-guide-list" aria-label="Định dạng hỗ trợ">
+                {importGuides.map((guide) => (
+                  <button
+                    className={activeImportGuideID === guide.id ? "active" : ""}
+                    type="button"
+                    key={guide.id}
+                    aria-pressed={activeImportGuideID === guide.id}
+                    onClick={() => setActiveImportGuideID(guide.id)}
+                  >
+                    <strong>{guide.label}</strong>
+                    <small>{guide.status === "demo" ? "Demo - xem hướng dẫn" : "Xem hướng dẫn"}</small>
+                  </button>
+                ))}
               </div>
               <button className="primary-btn" type="submit" disabled={isParsing}>
                 {isParsing ? "Đang xử lý..." : "Tiếp theo"}
               </button>
               <button className="ghost-btn" type="button" onClick={() => setStage("choose")}>Đổi cách tạo</button>
             </form>
+            {activeImportGuide && <ImportGuidePanel guide={activeImportGuide} onClose={() => setActiveImportGuideID(undefined)} />}
           </section>
         )}
 
@@ -576,6 +710,30 @@ export function TeacherCreateExam() {
         )}
       </main>
     </PageShell>
+  );
+}
+
+function ImportGuidePanel({ guide, onClose }: { guide: ImportGuide; onClose: () => void }) {
+  return (
+    <aside className="import-guide-panel" aria-label={`Hướng dẫn import ${guide.label}`}>
+      <div className="import-guide-panel-head">
+        <div>
+          <p className="eyebrow">Hướng dẫn import</p>
+          <h2>{guide.title}{guide.status === "demo" ? " - demo" : ""}</h2>
+        </div>
+        <button className="ghost-btn compact" type="button" onClick={onClose}>Thu gọn</button>
+      </div>
+      <p className="form-note">{guide.summary}</p>
+      <div className="import-guide-rules">
+        {guide.rules.map((rule) => (
+          <span key={rule}>{rule}</span>
+        ))}
+      </div>
+      <div className="import-guide-example">
+        <strong>Mẫu nên dùng</strong>
+        <pre>{guide.example}</pre>
+      </div>
+    </aside>
   );
 }
 

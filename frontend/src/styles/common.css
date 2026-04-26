@@ -92,6 +92,14 @@ h3 {
   margin: 10px 0;
 }
 
+.question-image-token {
+  display: inline-block;
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  padding: 2px 8px;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--coral);
