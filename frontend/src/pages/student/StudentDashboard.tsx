@@ -1,7 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
-import { type StudentDashboard as StudentDashboardData, getStudentDashboard } from "../../api";
+import { type StudentDashboard as StudentDashboardData, getStudentDashboard, logout } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
 import { clearAuth } from "../../storage";
 import { Brand } from "../../shared/Brand";
@@ -24,6 +24,15 @@ export function StudentDashboard() {
   function switchView(nextView: string) {
     setView(nextView);
     setSearchParams(nextView === "overview" ? {} : { view: nextView });
+  }
+
+  async function logoutStudent() {
+    try {
+      await logout();
+    } catch {
+      // Clear local state even if the server is unreachable.
+    }
+    clearAuth();
   }
 
   return (
@@ -58,7 +67,7 @@ export function StudentDashboard() {
             <h1>Theo dõi bài kiểm tra của bạn</h1>
             <p className="lead">Vào bài đang mở, xem lịch dự kiến, kiểm tra lịch sử điểm và chỉnh thông tin cơ bản từ tài khoản được trường cấp.</p>
           </div>
-          <Link className="ghost-btn" to="/" onClick={clearAuth}>Đổi tư cách</Link>
+          <Link className="ghost-btn" to="/" onClick={logoutStudent}>Đổi tư cách</Link>
         </section>
 
         {dashboard.isLoading && <article className="exam-card">Đang tải dashboard...</article>}

@@ -1,6 +1,6 @@
 import { type FormEvent, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { createAdminTeacher, type TeacherCreateResult } from "../../api";
+import { createAdminTeacher, logout as logoutSession, type TeacherCreateResult } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
 import { Brand } from "../../shared/Brand";
 import { clearAuth } from "../../storage";
@@ -30,7 +30,12 @@ export function AdminTeachers() {
     setForm((current) => ({ ...current, [field]: value }));
   }
 
-  function logout() {
+  async function logout() {
+    try {
+      await logoutSession();
+    } catch {
+      // Clear local state even if the server is unreachable.
+    }
     clearAuth();
     navigate("/");
   }

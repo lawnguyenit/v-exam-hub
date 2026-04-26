@@ -6,7 +6,9 @@ import { StudentDashboard } from "./pages/student/StudentDashboard";
 import { StudentExam } from "./pages/student/StudentExam";
 import { StudentReview } from "./pages/student/StudentReview";
 import { TeacherCreateExam } from "./pages/teacher/TeacherCreateExam";
+import { TeacherClasses } from "./pages/teacher/TeacherClasses";
 import { TeacherDashboard } from "./pages/teacher/TeacherDashboard";
+import { TeacherQuestionBank } from "./pages/teacher/TeacherQuestionBank";
 import { TeacherStudents } from "./pages/teacher/TeacherStudents";
 
 function App() {
@@ -22,7 +24,9 @@ function App() {
       <Route path="/student/exam" element={<StudentExam />} />
       <Route path="/student/review" element={<StudentReview />} />
       <Route path="/teacher" element={<TeacherDashboard />} />
+      <Route path="/teacher/classes" element={<TeacherClasses />} />
       <Route path="/teacher/create" element={<TeacherCreateExam />} />
+      <Route path="/teacher/question-bank" element={<TeacherQuestionBank />} />
       <Route path="/teacher/students" element={<TeacherStudents />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

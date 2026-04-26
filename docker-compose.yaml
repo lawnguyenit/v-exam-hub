@@ -4,11 +4,9 @@ services:
     container_name: v_exam_hub_db
     restart: always
     environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: "123" # Nên để trong ngoặc kép nếu có ký tự đặc biệt
-      POSTGRES_DB: v_exam_hub
-    # ports: 
-    #   - "5432:5432" # Chỉ mở nếu ông muốn dùng Tool (DBeaver) từ máy ngoài soi DB
+      POSTGRES_USER: ${POSTGRES_USER:-admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123}
+      POSTGRES_DB: ${POSTGRES_DB:-v_exam_hub}
     networks:
       - exam_network
     volumes:
@@ -22,7 +20,7 @@ services:
       start_period: 10s
 
   backend:
-    build: 
+    build:
       context: .
       dockerfile: Dockerfile
     container_name: v_exam_backend
@@ -31,10 +29,13 @@ services:
       db:
         condition: service_healthy
     ports:
-      - "8080:8080" # BẮT BUỘC: Để trình duyệt có thể gọi API
+      - "${BACKEND_PORT:-8080}:8080"
     environment:
-      DB_URL: "host=db user=admin password=123 dbname=v_exam_hub sslmode=disable"
-      DB_STARTUP_TIMEOUT: "90s"
+      APP_ENV: ${APP_ENV:-local}
+      PORT: ${PORT:-8080}
+      DB_URL: ${DB_URL:-host=db user=admin password=123 dbname=v_exam_hub sslmode=disable}
+      DB_STARTUP_TIMEOUT: ${DB_STARTUP_TIMEOUT:-90s}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-*}
     networks:
       - exam_network
 
@@ -45,7 +46,11 @@ services:
     container_name: v_exam_frontend
     restart: always
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT:-80}:80"
+    environment:
+      NGINX_PORT: ${NGINX_PORT:-80}
+      CLIENT_MAX_BODY_SIZE: ${CLIENT_MAX_BODY_SIZE:-64m}
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-http://backend:8080}
     depends_on:
       - backend
     networks:

@@ -215,7 +215,18 @@ export type ImportParseResult = {
   extract: ImportExtractInfo;
   questions: ImportParsedQuestion[];
   summary: ImportParseSummary;
+  duplicateCandidates?: ImportDuplicateCandidate[];
   message: string;
+};
+
+export type ImportDuplicateCandidate = {
+  batchId: number;
+  title: string;
+  sourceName: string;
+  existingQuestionCount: number;
+  matchingQuestionCount: number;
+  newQuestionCount: number;
+  createdAt: string;
 };
 
 export type StudentImportResult = {
@@ -226,18 +237,30 @@ export type StudentImportResult = {
   addedToClass: number;
   skipped: number;
   importedStudents: Array<{
+    sourceRow?: number;
     username: string;
     studentCode: string;
     fullName: string;
     temporaryPassword: string;
   }>;
   generatedPasswords: Array<{
+    sourceRow?: number;
     username: string;
     studentCode: string;
     fullName: string;
     password: string;
   }>;
   errors: string[];
+  rowErrors?: Array<{
+    sourceRow: number;
+    studentCode: string;
+    fullName: string;
+    email: string;
+    phone: string;
+    username: string;
+    password: string;
+    message: string;
+  }>;
 };
 
 export type TeacherCreateResult = {
@@ -254,6 +277,33 @@ export type TeacherClass = {
   id: number;
   classCode: string;
   className: string;
+  memberCount?: number;
+  examCount?: number;
+};
+
+export type TeacherClassDetail = TeacherClass & {
+  memberCount: number;
+  examCount: number;
+  averageScore: string;
+  members: Array<{
+    userId: number;
+    username: string;
+    studentCode: string;
+    fullName: string;
+    email: string;
+    phone: string;
+    attemptCount: number;
+    bestScore: string;
+    lastSeen: string;
+  }>;
+  exams: Array<{
+    id: number;
+    title: string;
+    status: string;
+    submitted: number;
+    total: number;
+    average: string;
+  }>;
 };
 
 export type QuestionBankItem = {
@@ -262,6 +312,13 @@ export type QuestionBankItem = {
   sourceName: string;
   questionCount: number;
   createdAt: string;
+};
+
+export type QuestionBankDeleteResult = {
+  id: number;
+  archivedQuestions: number;
+  deletedQuestions: number;
+  removedBatch: boolean;
 };
 
 export type ExamCreatePayload = {
@@ -358,6 +415,12 @@ export async function login(payload: { username: string; password: string; role:
     throw new Error(await response.text());
   }
   return response.json() as Promise<LoginResult>;
+}
+
+export async function logout() {
+  await fetch("/api/auth/logout", {
+    method: "POST",
+  });
 }
 
 export async function createAdminTeacher(payload: {
@@ -470,6 +533,18 @@ export async function saveTeacherImportItem(importBatchId: number, question: Imp
   return response.json() as Promise<{ ok: boolean }>;
 }
 
+export async function createTeacherImportItem(importBatchId: number, question: ImportParsedQuestion) {
+  const response = await fetch("/api/teacher/import/items/create", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ importBatchId, question }),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<ImportParsedQuestion>;
+}
+
 export async function deleteTeacherImportItem(importBatchId: number, importItemId: number) {
   const response = await fetch("/api/teacher/import/items/delete", {
     method: "POST",
@@ -482,21 +557,23 @@ export async function deleteTeacherImportItem(importBatchId: number, importItemI
   return response.json() as Promise<{ ok: boolean }>;
 }
 
-export async function approveTeacherImportPassItems(importBatchId: number) {
+export async function approveTeacherImportPassItems(importBatchId: number, targetBatchId?: number) {
   const response = await fetch("/api/teacher/import/approve-pass", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ importBatchId }),
+    body: JSON.stringify({ importBatchId, targetBatchId }),
   });
   if (!response.ok) {
     throw new Error(await response.text());
   }
   return response.json() as Promise<{
     importBatchId: number;
+    targetBatchId?: number;
     approved: number;
     alreadyApproved: number;
     skipped: number;
     rejected: number;
+    questionCount: number;
     questionIds: number[];
   }>;
 }
@@ -505,9 +582,52 @@ export function getTeacherClasses() {
   return getJSON<TeacherClass[]>("/api/teacher/classes");
 }
 
+export function getTeacherClassDetail(classID: number) {
+  return getJSON<TeacherClassDetail>(`/api/teacher/classes/${encodeURIComponent(classID)}`);
+}
+
+export async function updateTeacherClass(classID: number, payload: { classCode: string; className: string }) {
+  const response = await fetch(`/api/teacher/classes/${encodeURIComponent(classID)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<TeacherClass>;
+}
+
+export async function deleteTeacherClass(classID: number) {
+  const response = await fetch(`/api/teacher/classes/${encodeURIComponent(classID)}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ ok: boolean }>;
+}
+
+export async function removeTeacherClassMember(classID: number, userID: number) {
+  const response = await fetch(`/api/teacher/classes/${encodeURIComponent(classID)}/members/${encodeURIComponent(userID)}`, { method: "DELETE" });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<{ ok: boolean }>;
+}
+
 export function getTeacherQuestionBank(account?: string) {
   const query = account ? `?account=${encodeURIComponent(account)}` : "";
   return getJSON<QuestionBankItem[]>(`/api/teacher/question-bank${query}`);
+}
+
+export async function deleteTeacherQuestionBank(sourceID: number, account?: string) {
+  const query = account ? `?account=${encodeURIComponent(account)}` : "";
+  const response = await fetch(`/api/teacher/question-bank/${encodeURIComponent(sourceID)}${query}`, {
+    method: "DELETE",
+  });
+  if (!response.ok) {
+    throw new Error(await response.text());
+  }
+  return response.json() as Promise<QuestionBankDeleteResult>;
 }
 
 export function getTeacherExamSnapshot(examID: string) {

@@ -6,7 +6,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN go build -o server main.go
+RUN go build -o server .
 
 # Stage 2: Runtime with LibreOffice for legacy DOC conversion
 FROM alpine:latest
@@ -19,6 +19,7 @@ RUN apk add --no-cache \
     ttf-dejavu
 
 ENV SOFFICE_PATH=/usr/bin/soffice
+ENV PORT=8080
 
 COPY --from=builder /app/server ./
 

@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { FormEvent, ReactNode } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
-import { deleteTeacherExam, generateTeacherExamAccessCode, getTeacherDashboard, getTeacherExam, getTeacherExamSnapshot, updateTeacherProfile } from "../../api";
+import { deleteTeacherExam, generateTeacherExamAccessCode, getTeacherDashboard, getTeacherExam, getTeacherExamSnapshot, logout, updateTeacherProfile } from "../../api";
 import { TeacherDetail } from "../../features/teacher-statistics/TeacherDetail";
 import { TeacherDetailModal } from "../../features/teacher-statistics/TeacherDetailModal";
 import { useRequiredAuth } from "../../lib/auth";
@@ -87,7 +87,12 @@ export function TeacherDashboard() {
     }
   }
 
-  function logoutTeacher() {
+  async function logoutTeacher() {
+    try {
+      await logout();
+    } catch {
+      // Frontend session still needs to be cleared even if the network is unavailable.
+    }
     clearAuth();
     navigate("/", { replace: true });
   }
@@ -131,6 +136,8 @@ export function TeacherDashboard() {
         <nav className="teacher-nav" aria-label="Điều hướng giáo viên">
           <Link className="nav-tab active" to="/teacher">Dashboard</Link>
           <Link className="nav-tab" to="/teacher/create">Tạo bài kiểm tra</Link>
+          <Link className="nav-tab" to="/teacher/question-bank">Đề cương</Link>
+          <Link className="nav-tab" to="/teacher/classes">Lớp</Link>
           <Link className="nav-tab" to="/teacher/students">Sinh viên</Link>
         </nav>
         <div className="teacher-account-actions">

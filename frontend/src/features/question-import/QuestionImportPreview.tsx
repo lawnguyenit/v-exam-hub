@@ -14,11 +14,13 @@ export function QuestionImportPreview({
   result,
   mode = "all",
   onQuestionSave,
+  onQuestionCreate,
   onQuestionDelete,
 }: {
   result: ParseResult;
   mode?: PreviewMode;
   onQuestionSave?: (index: number, question: ParsedQuestion) => Promise<void>;
+  onQuestionCreate?: (question: ParsedQuestion) => Promise<void>;
   onQuestionDelete?: (index: number, question: ParsedQuestion) => Promise<void>;
 }) {
   const { summary, questions } = result;
@@ -34,9 +36,36 @@ export function QuestionImportPreview({
     : baseQuestions.filter(({ question }) => question.status === filter);
 
   async function saveEditingQuestion(question: ParsedQuestion) {
-    if (!editing || !onQuestionSave) return;
+    if (!editing) return;
+    if (editing.index < 0) {
+      if (!onQuestionCreate) return;
+      await onQuestionCreate(question);
+      setEditing(null);
+      return;
+    }
+    if (!onQuestionSave) return;
     await onQuestionSave(editing.index, question);
     setEditing(null);
+  }
+
+  function startCreateQuestion() {
+    const maxSourceOrder = questions.reduce((max, question) => Math.max(max, question.sourceOrder), 0);
+    setEditing({
+      index: -1,
+      question: {
+        sourceOrder: maxSourceOrder + 1,
+        content: "",
+        options: [
+          { label: "A", content: "" },
+          { label: "B", content: "" },
+          { label: "C", content: "" },
+          { label: "D", content: "" },
+        ],
+        confidence: 0,
+        status: "review",
+        warnings: ["Cau them thu cong, can luu de cham lai."],
+      },
+    });
   }
 
   async function deleteQuestion(index: number, question: ParsedQuestion) {
@@ -57,6 +86,11 @@ export function QuestionImportPreview({
         <Score label="Pass" value={summary.passed} tone="pass" active={filter === "pass"} onClick={() => setFilter("pass")} />
         <Score label="Cần kiểm tra" value={summary.review} tone="review" active={filter === "review"} onClick={() => setFilter("review")} />
         <Score label="Lỗi" value={summary.failed} tone="fail" active={filter === "fail"} onClick={() => setFilter("fail")} />
+        {onQuestionCreate && (
+          <button className="question-add-trigger" type="button" onClick={startCreateQuestion}>
+            Thêm câu
+          </button>
+        )}
       </div>
 
       {visibleQuestions.length === 0 ? (
@@ -107,6 +141,7 @@ export function QuestionImportPreview({
           question={editing.question}
           onCancel={() => setEditing(null)}
           onSave={saveEditingQuestion}
+          allowSaveWithoutItemId={editing.index < 0}
         />
       )}
     </section>
@@ -165,8 +200,8 @@ function QuestionCard({
       </div>
       <p><RichQuestionText text={question.content || "Chua tach duoc noi dung cau hoi."} assetBatchId={assetBatchId} /></p>
       <div className="parsed-options">
-        {question.options.map((option) => (
-          <span className={option.label === question.correctLabel ? "correct" : ""} key={`${question.sourceOrder}-${option.label}`}>
+        {question.options.map((option, optionIndex) => (
+          <span className={option.label === question.correctLabel ? "correct" : ""} key={`${question.sourceOrder}-${option.label}-${optionIndex}`}>
             {option.label}. <RichQuestionText text={option.content} assetBatchId={assetBatchId} />
           </span>
         ))}
@@ -193,10 +228,12 @@ function QuestionEditModal({
   question,
   onCancel,
   onSave,
+  allowSaveWithoutItemId = false,
 }: {
   question: ParsedQuestion;
   onCancel: () => void;
   onSave: (question: ParsedQuestion) => Promise<void>;
+  allowSaveWithoutItemId?: boolean;
 }) {
   const [draft, setDraft] = useState(question);
   const [saveState, setSaveState] = useState<"idle" | "saving" | "error">("idle");
@@ -279,7 +316,7 @@ function QuestionEditModal({
             </select>
           </label>
           <button className="ghost-btn" type="button" onClick={addOption}>Thêm lựa chọn</button>
-          <button className="primary-btn" type="button" onClick={saveDraft} disabled={!draft.importItemId || saveState === "saving"}>
+          <button className="primary-btn" type="button" onClick={saveDraft} disabled={(!draft.importItemId && !allowSaveWithoutItemId) || saveState === "saving"}>
             {saveState === "saving" ? "Đang lưu..." : "Lưu câu"}
           </button>
         </div>

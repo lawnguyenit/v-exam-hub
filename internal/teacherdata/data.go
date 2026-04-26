@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"math"
 	"math/big"
+	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -132,6 +134,13 @@ type QuestionBankItem struct {
 	SourceName    string `json:"sourceName"`
 	QuestionCount int    `json:"questionCount"`
 	CreatedAt     string `json:"createdAt"`
+}
+
+type QuestionBankDeleteResult struct {
+	ID                int64 `json:"id"`
+	ArchivedQuestions int   `json:"archivedQuestions"`
+	DeletedQuestions  int   `json:"deletedQuestions"`
+	RemovedBatch      bool  `json:"removedBatch"`
 }
 
 type ExamCreateRequest struct {
@@ -288,6 +297,107 @@ func QuestionBank(ctx context.Context, db *pgxpool.Pool, account string) ([]Ques
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func DeleteQuestionBankSource(ctx context.Context, db *pgxpool.Pool, batchID int64, account string) (QuestionBankDeleteResult, error) {
+	result := QuestionBankDeleteResult{ID: batchID}
+	if batchID <= 0 {
+		return result, fmt.Errorf("missing question bank source id")
+	}
+	account = strings.TrimSpace(account)
+	if account == "" {
+		return result, fmt.Errorf("missing teacher account")
+	}
+
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback(ctx)
+
+	var ownerID int64
+	if err := tx.QueryRow(ctx, `SELECT id FROM users WHERE username = $1`, account).Scan(&ownerID); err != nil {
+		return result, fmt.Errorf("teacher account not found")
+	}
+
+	var exists bool
+	if err := tx.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM import_batches
+			WHERE id = $1 AND uploaded_by_user_id = $2
+		)
+	`, batchID, ownerID).Scan(&exists); err != nil {
+		return result, err
+	}
+	if !exists {
+		return result, fmt.Errorf("question bank source not found or not owned by this account")
+	}
+
+	archiveTag, err := tx.Exec(ctx, `
+		UPDATE question_bank qb
+		SET question_status = 'archived',
+			updated_at = NOW()
+		FROM import_items ii
+		WHERE qb.import_item_id = ii.id
+			AND ii.batch_id = $1
+			AND qb.question_status <> 'archived'
+			AND EXISTS (
+				SELECT 1
+				FROM exam_questions eq
+				WHERE eq.question_id = qb.id
+			)
+	`, batchID)
+	if err != nil {
+		return result, err
+	}
+	result.ArchivedQuestions = int(archiveTag.RowsAffected())
+
+	deleteTag, err := tx.Exec(ctx, `
+		DELETE FROM question_bank qb
+		USING import_items ii
+		WHERE qb.import_item_id = ii.id
+			AND ii.batch_id = $1
+			AND NOT EXISTS (
+				SELECT 1
+				FROM exam_questions eq
+				WHERE eq.question_id = qb.id
+			)
+	`, batchID)
+	if err != nil {
+		return result, err
+	}
+	result.DeletedQuestions = int(deleteTag.RowsAffected())
+
+	var remainingReferenced int
+	if err := tx.QueryRow(ctx, `
+		SELECT COUNT(qb.id)::int
+		FROM import_items ii
+		JOIN question_bank qb ON qb.import_item_id = ii.id
+		WHERE ii.batch_id = $1
+			AND EXISTS (
+				SELECT 1
+				FROM exam_questions eq
+				WHERE eq.question_id = qb.id
+			)
+	`, batchID).Scan(&remainingReferenced); err != nil {
+		return result, err
+	}
+	if remainingReferenced == 0 {
+		deleteBatchTag, err := tx.Exec(ctx, `DELETE FROM import_batches WHERE id = $1 AND uploaded_by_user_id = $2`, batchID, ownerID)
+		if err != nil {
+			return result, err
+		}
+		result.RemovedBatch = deleteBatchTag.RowsAffected() > 0
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return result, err
+	}
+	if result.RemovedBatch {
+		_ = os.RemoveAll(filepath.Join("data", "imports", fmt.Sprintf("%d", batchID)))
+	}
+	return result, nil
 }
 
 func CreateExam(ctx context.Context, db *pgxpool.Pool, payload ExamCreateRequest) (ExamCreateResult, error) {

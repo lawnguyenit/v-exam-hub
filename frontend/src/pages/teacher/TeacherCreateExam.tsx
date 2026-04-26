@@ -5,6 +5,8 @@ import { Navigate, useNavigate, useSearchParams } from "react-router-dom";
 import {
   approveTeacherImportPassItems,
   createTeacherExam,
+  createTeacherImportItem,
+  deleteTeacherQuestionBank,
   deleteTeacherImportItem,
   getTeacherExam,
   getTeacherClasses,
@@ -12,7 +14,7 @@ import {
   parseTeacherImport,
   saveTeacherImportItem,
 } from "../../api";
-import type { QuestionBankItem } from "../../api";
+import type { ImportDuplicateCandidate, QuestionBankItem } from "../../api";
 import { QuestionImportPreview } from "../../features/question-import/QuestionImportPreview";
 import { parseExamText, recheckParsedQuestions } from "../../features/question-import/ruleParser";
 import type { ParsedQuestion, ParseResult } from "../../features/question-import/ruleParser";
@@ -72,6 +74,7 @@ export function TeacherCreateExam() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const editExamID = searchParams.get("exam") || "";
+  const initialSourceID = searchParams.get("source") || "";
   const queryClient = useQueryClient();
   const [stage, setStage] = useState<CreateStage>(editExamID ? "compose" : "choose");
   const [source, setSource] = useState<CreateSource>(editExamID ? "bank" : "import");
@@ -91,12 +94,17 @@ export function TeacherCreateExam() {
   const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | undefined>();
   const [examForm, setExamForm] = useState<ExamForm>(defaultExamForm);
   const [isCreatingExam, setIsCreatingExam] = useState(false);
+  const [deletingBankID, setDeletingBankID] = useState<number | undefined>();
+  const [pendingDeleteBank, setPendingDeleteBank] = useState<QuestionBankItem | null>(null);
+  const [duplicateCandidates, setDuplicateCandidates] = useState<ImportDuplicateCandidate[]>([]);
+  const [isDuplicateModalOpen, setIsDuplicateModalOpen] = useState(false);
+  const [mergeTargetBatchID, setMergeTargetBatchID] = useState<number | undefined>();
 
   const classQuery = useQuery({ queryKey: ["teacher-classes"], queryFn: getTeacherClasses });
   const questionBankQuery = useQuery({
     queryKey: ["teacher-question-bank", auth?.account],
     queryFn: () => getTeacherQuestionBank(auth?.account),
-    enabled: stage === "compose" && Boolean(auth?.account),
+    enabled: (stage === "compose" || Boolean(initialSourceID)) && Boolean(auth?.account),
   });
   const editExamQuery = useQuery({
     queryKey: ["teacher-exam", editExamID],
@@ -130,6 +138,19 @@ export function TeacherCreateExam() {
     setResult(exam.canEdit ? "Đang sửa cấu hình bài kiểm tra." : "Bài đã có lượt làm: nguồn đề cương bị khóa, cấu hình khác sẽ áp dụng cho lượt làm sau.");
   }, [editExamQuery.data]);
 
+  useEffect(() => {
+    if (!initialSourceID || editExamID || examForm.questionSourceId || questionBank.length === 0) return;
+    const sourceItem = questionBank.find((bank) => String(bank.id) === initialSourceID);
+    if (!sourceItem) return;
+    setSource("bank");
+    setStage("compose");
+    setExamForm((current) => ({
+      ...current,
+      questionSourceId: String(sourceItem.id),
+      questionCount: String(Math.min(40, sourceItem.questionCount)),
+    }));
+  }, [editExamID, examForm.questionSourceId, initialSourceID, questionBank]);
+
   if (!auth) return <Navigate to="/" replace />;
   const account = auth.account;
 
@@ -158,6 +179,10 @@ export function TeacherCreateExam() {
       setRawText(nextText);
       setCheckedText(nextText);
       setReviewResult({ importBatchId: response.importBatchId, questions: response.questions, summary: response.summary });
+      const candidates = response.duplicateCandidates || [];
+      setDuplicateCandidates(candidates);
+      setMergeTargetBatchID(candidates[0]?.batchId);
+      setIsDuplicateModalOpen(candidates.length > 0);
       setIsTextDirty(false);
       setFileKind(
         response.extract.status === "unsupported"
@@ -195,6 +220,9 @@ export function TeacherCreateExam() {
       setRawText("");
       setCheckedText("");
       setReviewResult({ questions: [], summary: { total: 0, passed: 0, review: 0, failed: 0, averageConfidence: 0 } });
+      setDuplicateCandidates([]);
+      setIsDuplicateModalOpen(false);
+      setMergeTargetBatchID(undefined);
       setIsTextDirty(false);
       setExtractNote("");
       setResult("Chọn file đề thi để bắt đầu.");
@@ -208,6 +236,9 @@ export function TeacherCreateExam() {
     setRawText("");
     setCheckedText("");
     setReviewResult({ questions: [], summary: { total: 0, passed: 0, review: 0, failed: 0, averageConfidence: 0 } });
+    setDuplicateCandidates([]);
+    setIsDuplicateModalOpen(false);
+    setMergeTargetBatchID(undefined);
     setIsTextDirty(false);
     setExtractNote("");
     setResult("Đã nhận file. Bấm Tiếp theo để server xử lý.");
@@ -231,10 +262,10 @@ export function TeacherCreateExam() {
   }
 
   async function saveReviewQuestion(index: number, nextQuestion: ParsedQuestion) {
-  const nextResult = recheckParsedQuestions(activeResult.questions.map((question, questionIndex) => (
-    questionIndex === index ? nextQuestion : question
-  )));
-  nextResult.importBatchId = activeResult.importBatchId;
+    const nextResult = recheckParsedQuestions(activeResult.questions.map((question, questionIndex) => (
+      questionIndex === index ? nextQuestion : question
+    )));
+    nextResult.importBatchId = activeResult.importBatchId;
     const savedQuestion = nextResult.questions[index];
     if (!importBatchID || !savedQuestion.importItemId) {
       setResult("Câu này chưa có item trong database. Hãy chạy lại import từ file nếu cần lưu.");
@@ -243,6 +274,19 @@ export function TeacherCreateExam() {
     await saveTeacherImportItem(importBatchID, savedQuestion);
     setReviewResult(nextResult);
     setResult(`Đã lưu Câu ${savedQuestion.sourceOrder} vào batch #${importBatchID}.`);
+  }
+
+  async function createReviewQuestion(nextQuestion: ParsedQuestion) {
+    const nextResult = recheckParsedQuestions([...activeResult.questions, nextQuestion]);
+    nextResult.importBatchId = activeResult.importBatchId;
+    const savedQuestion = nextResult.questions[nextResult.questions.length - 1];
+    if (!importBatchID) {
+      setResult("Batch nay chua co trong database. Hay import file truoc khi them cau thu cong.");
+      throw new Error("missing import batch id");
+    }
+    const createdQuestion = await createTeacherImportItem(importBatchID, savedQuestion);
+    setReviewResult(resultFromQuestions([...activeResult.questions, createdQuestion], activeResult.importBatchId));
+    setResult(`Da them Cau ${createdQuestion.sourceOrder} vao batch #${importBatchID}.`);
   }
 
   async function deleteReviewQuestion(index: number, question: ParsedQuestion) {
@@ -254,7 +298,7 @@ export function TeacherCreateExam() {
     setResult(`Đã xoá Câu ${question.sourceOrder} khỏi danh sách duyệt.`);
   }
 
-  async function approvePassQuestions() {
+  async function approvePassQuestions(targetBatchID?: number | null) {
     const passQuestions = activeResult.questions.filter((question) => question.status === "pass");
     if (!importBatchID) {
       setResult("Batch này chưa có trong database, chưa thể lưu vào ngân hàng câu hỏi.");
@@ -268,10 +312,12 @@ export function TeacherCreateExam() {
     setIsApproving(true);
     setResult("Đang lưu các câu pass vào ngân hàng câu hỏi...");
     try {
-      const response = await approveTeacherImportPassItems(importBatchID);
+      const requestedTargetBatchID = targetBatchID === null ? undefined : targetBatchID ?? mergeTargetBatchID;
+      const response = await approveTeacherImportPassItems(importBatchID, requestedTargetBatchID);
       await queryClient.invalidateQueries({ queryKey: ["teacher-question-bank"] });
       setReviewResult(resultFromQuestions(passQuestions, activeResult.importBatchId));
       setActiveTab("results");
+      const sourceID = response.targetBatchId || response.importBatchId || importBatchID;
       setApprovalSummary({
         approved: response.approved,
         alreadyApproved: response.alreadyApproved,
@@ -281,10 +327,14 @@ export function TeacherCreateExam() {
       });
       setExamForm((current) => ({
         ...current,
-        questionSourceId: String(importBatchID),
-        questionCount: String(response.questionIds?.length || response.approved + response.alreadyApproved),
+        questionSourceId: String(sourceID),
+        questionCount: String(response.questionCount || response.questionIds?.length || response.approved + response.alreadyApproved),
       }));
       setStage("compose");
+      if (requestedTargetBatchID) {
+        setResult(`Đã thêm ${response.approved} câu mới vào đề cương đã có và bỏ qua ${response.skipped} câu trùng.`);
+        return;
+      }
       setResult(`Đã đưa ${response.approved} câu mới vào ngân hàng. Tiếp tục cấu hình bài kiểm tra.`);
     } catch (error) {
       setResult(error instanceof Error ? error.message : "Không lưu được các câu pass vào ngân hàng câu hỏi.");
@@ -331,6 +381,36 @@ export function TeacherCreateExam() {
     } finally {
       setIsCreatingExam(false);
     }
+  }
+
+  async function deleteQuestionBankSource(bank: QuestionBankItem) {
+    if (!auth) return;
+    setDeletingBankID(bank.id);
+    try {
+      const deleted = await deleteTeacherQuestionBank(bank.id, auth.account);
+      await queryClient.invalidateQueries({ queryKey: ["teacher-question-bank"] });
+      if (examForm.questionSourceId === String(bank.id)) {
+        setExamForm({ ...examForm, questionSourceId: "", questionCount: "" });
+      }
+      setResult(`Đã xóa bộ đề cương: ${deleted.deletedQuestions} câu được xóa, ${deleted.archivedQuestions} câu đã archive.`);
+      setPendingDeleteBank(null);
+    } catch (error) {
+      setResult(error instanceof Error ? error.message : "Không xóa được bộ đề cương.");
+    } finally {
+      setDeletingBankID(undefined);
+    }
+  }
+
+  async function chooseDuplicateMerge(candidate: ImportDuplicateCandidate) {
+    setMergeTargetBatchID(candidate.batchId);
+    setIsDuplicateModalOpen(false);
+    await approvePassQuestions(candidate.batchId);
+  }
+
+  async function chooseDuplicateNewSource() {
+    setMergeTargetBatchID(undefined);
+    setIsDuplicateModalOpen(false);
+    await approvePassQuestions(null);
   }
 
   return (
@@ -434,15 +514,15 @@ export function TeacherCreateExam() {
                 </section>
               )}
 
-              {activeTab === "results" && <QuestionImportPreview result={activeResult} onQuestionSave={saveReviewQuestion} onQuestionDelete={deleteReviewQuestion} />}
-              {activeTab === "review" && <QuestionImportPreview result={activeResult} mode="needs-review" onQuestionSave={saveReviewQuestion} onQuestionDelete={deleteReviewQuestion} />}
+              {activeTab === "results" && <QuestionImportPreview result={activeResult} onQuestionSave={saveReviewQuestion} onQuestionCreate={createReviewQuestion} onQuestionDelete={deleteReviewQuestion} />}
+              {activeTab === "review" && <QuestionImportPreview result={activeResult} mode="needs-review" onQuestionSave={saveReviewQuestion} onQuestionCreate={createReviewQuestion} onQuestionDelete={deleteReviewQuestion} />}
 
               <div className="approval-actions">
                 <div>
                   <strong>Lưu câu pass rồi tạo bài</strong>
                   <span>Câu pass sẽ vào ngân hàng câu hỏi. Câu lỗi hoặc cần kiểm tra vẫn ở lại batch import.</span>
                 </div>
-                <button className="primary-btn" type="button" onClick={approvePassQuestions} disabled={isApproving || activeResult.summary.passed === 0}>
+                <button className="primary-btn" type="button" onClick={() => approvePassQuestions()} disabled={isApproving || activeResult.summary.passed === 0}>
                   {isApproving ? "Đang lưu..." : `Lưu ${activeResult.summary.passed} câu pass`}
                 </button>
               </div>
@@ -461,11 +541,38 @@ export function TeacherCreateExam() {
             result={result}
             isLoadingQuestions={questionBankQuery.isLoading}
             isCreating={isCreatingExam}
+            deletingBankID={deletingBankID}
             sourceLocked={Boolean(editExamID && editExamQuery.data?.canEdit === false)}
             onBack={() => editExamID ? navigate("/teacher") : setStage("choose")}
             onFormChange={setExamForm}
+            onDeleteSource={setPendingDeleteBank}
             onSubmit={submitExam}
           />
+        )}
+        {isDuplicateModalOpen && duplicateCandidates.length > 0 && (
+          <DuplicateImportModal
+            candidates={duplicateCandidates}
+            isApproving={isApproving}
+            onMerge={chooseDuplicateMerge}
+            onCreateNew={chooseDuplicateNewSource}
+          />
+        )}
+        {pendingDeleteBank && (
+          <div className="approval-modal-backdrop" role="presentation">
+            <section className="teacher-confirm-modal" role="dialog" aria-modal="true" aria-label="Xác nhận xóa bộ đề cương">
+              <div>
+                <p className="eyebrow">Xóa bộ đề cương</p>
+                <h2>{pendingDeleteBank.title}</h2>
+              </div>
+              <p>Các câu đã nằm trong bài thi cũ sẽ được lưu lịch sử và ẩn khỏi danh sách active. Những câu chưa được dùng sẽ bị xóa khỏi ngân hàng câu hỏi.</p>
+              <div className="modal-actions">
+                <button className="ghost-btn" type="button" onClick={() => setPendingDeleteBank(null)} disabled={deletingBankID === pendingDeleteBank.id}>Hủy</button>
+                <button className="primary-btn danger" type="button" onClick={() => deleteQuestionBankSource(pendingDeleteBank)} disabled={deletingBankID === pendingDeleteBank.id}>
+                  {deletingBankID === pendingDeleteBank.id ? "Đang xóa..." : "Xóa bộ đề cương"}
+                </button>
+              </div>
+            </section>
+          </div>
         )}
       </main>
     </PageShell>
@@ -481,9 +588,11 @@ function ExamComposer({
   result,
   isLoadingQuestions,
   isCreating,
+  deletingBankID,
   sourceLocked,
   onBack,
   onFormChange,
+  onDeleteSource,
   onSubmit,
 }: {
   source: CreateSource;
@@ -494,9 +603,11 @@ function ExamComposer({
   result: string;
   isLoadingQuestions: boolean;
   isCreating: boolean;
+  deletingBankID?: number;
   sourceLocked: boolean;
   onBack: () => void;
   onFormChange: (form: ExamForm) => void;
+  onDeleteSource: (bank: QuestionBankItem) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
 }) {
   const selectedSource = questionBank.find((bank) => String(bank.id) === form.questionSourceId);
@@ -629,17 +740,26 @@ function ExamComposer({
         ) : (
           <div className="question-bank-list">
             {questionBank.map((bank) => (
-              <button
-                className={`bank-question ${String(bank.id) === form.questionSourceId ? "selected" : ""}`}
-                type="button"
-                key={bank.id}
-                disabled={sourceLocked}
-                onClick={() => onFormChange({ ...form, questionSourceId: String(bank.id), questionCount: String(Math.min(40, bank.questionCount)) })}
-              >
-                <strong>{bank.title}</strong>
-                <span>{bank.questionCount} câu active</span>
-                <small>{bank.sourceName || `Batch #${bank.id}`} - {bank.createdAt}</small>
-              </button>
+              <article className={`bank-question ${String(bank.id) === form.questionSourceId ? "selected" : ""}`} key={bank.id}>
+                <button
+                  className="bank-question-select"
+                  type="button"
+                  disabled={sourceLocked}
+                  onClick={() => onFormChange({ ...form, questionSourceId: String(bank.id), questionCount: String(Math.min(40, bank.questionCount)) })}
+                >
+                  <strong>{bank.title}</strong>
+                  <span>{bank.questionCount} câu active</span>
+                  <small>{bank.sourceName || `Batch #${bank.id}`} - {bank.createdAt}</small>
+                </button>
+                <button
+                  className="bank-delete-btn"
+                  type="button"
+                  disabled={sourceLocked || deletingBankID === bank.id}
+                  onClick={() => onDeleteSource(bank)}
+                >
+                  {deletingBankID === bank.id ? "Đang xóa" : "Xóa"}
+                </button>
+              </article>
             ))}
           </div>
         )}
@@ -651,6 +771,49 @@ function ExamComposer({
         )}
       </aside>
     </section>
+  );
+}
+
+function DuplicateImportModal({
+  candidates,
+  isApproving,
+  onMerge,
+  onCreateNew,
+}: {
+  candidates: ImportDuplicateCandidate[];
+  isApproving: boolean;
+  onMerge: (candidate: ImportDuplicateCandidate) => void;
+  onCreateNew: () => void;
+}) {
+  const primary = candidates[0];
+  return (
+    <div className="approval-modal-backdrop" role="dialog" aria-modal="true" aria-label="Kiểm tra đề cương trùng">
+      <section className="approval-modal duplicate-import-modal">
+        <div>
+          <p className="eyebrow">Đề cương đã có</p>
+          <h2>File vừa import trùng với ngân hàng hiện tại</h2>
+          <p>
+            Hệ thống tìm thấy {primary.matchingQuestionCount} câu đã có trong "{primary.title}".
+            Nếu đây là bản cập nhật của đề cương cũ, chỉ nên thêm câu mới để tránh phình database.
+          </p>
+        </div>
+        <div className="duplicate-candidate-list">
+          {candidates.map((candidate) => (
+            <button className="duplicate-candidate" type="button" key={candidate.batchId} disabled={isApproving} onClick={() => onMerge(candidate)}>
+              <strong>{candidate.title}</strong>
+              <span>{candidate.matchingQuestionCount}/{candidate.existingQuestionCount} câu đã có - ước tính {candidate.newQuestionCount} câu mới</span>
+              <small>{candidate.sourceName || `Batch #${candidate.batchId}`} - {candidate.createdAt}</small>
+            </button>
+          ))}
+        </div>
+        <div className="approval-modal-actions">
+          <button className="primary-btn" type="button" disabled={isApproving} onClick={() => onMerge(primary)}>
+            {isApproving ? "Đang lưu..." : "Thêm câu mới vào đề cương đã có"}
+          </button>
+          <button className="ghost-btn" type="button" disabled={isApproving} onClick={onCreateNew}>Tạo đề cương mới</button>
+        </div>
+      </section>
+    </div>
   );
 }
 

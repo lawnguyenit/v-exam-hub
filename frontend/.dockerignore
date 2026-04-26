@@ -1,0 +1,10 @@
+.git
+node_modules
+dist
+.vite
+vite-dev*.log
+*.log
+
+.env
+.env.*
+!.env.production

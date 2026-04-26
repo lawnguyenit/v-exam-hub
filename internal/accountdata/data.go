@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/jackc/pgx/v5"
@@ -64,24 +65,65 @@ type TeacherCreateResult struct {
 }
 
 type ClassSummary struct {
+	ID          int64  `json:"id"`
+	ClassCode   string `json:"classCode"`
+	ClassName   string `json:"className"`
+	MemberCount int    `json:"memberCount"`
+	ExamCount   int    `json:"examCount"`
+}
+
+type ClassDetail struct {
+	ID           int64              `json:"id"`
+	ClassCode    string             `json:"classCode"`
+	ClassName    string             `json:"className"`
+	MemberCount  int                `json:"memberCount"`
+	ExamCount    int                `json:"examCount"`
+	AverageScore string             `json:"averageScore"`
+	Members      []ClassMember      `json:"members"`
+	Exams        []ClassExamSummary `json:"exams"`
+}
+
+type ClassMember struct {
+	UserID       int64  `json:"userId"`
+	Username     string `json:"username"`
+	StudentCode  string `json:"studentCode"`
+	FullName     string `json:"fullName"`
+	Email        string `json:"email"`
+	Phone        string `json:"phone"`
+	AttemptCount int    `json:"attemptCount"`
+	BestScore    string `json:"bestScore"`
+	LastSeen     string `json:"lastSeen"`
+}
+
+type ClassExamSummary struct {
 	ID        int64  `json:"id"`
+	Title     string `json:"title"`
+	Status    string `json:"status"`
+	Submitted int    `json:"submitted"`
+	Total     int    `json:"total"`
+	Average   string `json:"average"`
+}
+
+type ClassUpdateRequest struct {
 	ClassCode string `json:"classCode"`
 	ClassName string `json:"className"`
 }
 
 type StudentImportResult struct {
-	ClassCode          string                 `json:"classCode"`
-	ClassName          string                 `json:"className"`
-	Created            int                    `json:"created"`
-	Updated            int                    `json:"updated"`
-	AddedToClass       int                    `json:"addedToClass"`
-	Skipped            int                    `json:"skipped"`
-	ImportedStudents   []ImportedStudent      `json:"importedStudents"`
-	GeneratedPasswords []GeneratedPasswordRow `json:"generatedPasswords"`
-	Errors             []string               `json:"errors"`
+	ClassCode          string                  `json:"classCode"`
+	ClassName          string                  `json:"className"`
+	Created            int                     `json:"created"`
+	Updated            int                     `json:"updated"`
+	AddedToClass       int                     `json:"addedToClass"`
+	Skipped            int                     `json:"skipped"`
+	ImportedStudents   []ImportedStudent       `json:"importedStudents"`
+	GeneratedPasswords []GeneratedPasswordRow  `json:"generatedPasswords"`
+	Errors             []string                `json:"errors"`
+	RowErrors          []StudentImportRowError `json:"rowErrors"`
 }
 
 type ImportedStudent struct {
+	SourceRow         int    `json:"sourceRow"`
 	Username          string `json:"username"`
 	StudentCode       string `json:"studentCode"`
 	FullName          string `json:"fullName"`
@@ -89,19 +131,32 @@ type ImportedStudent struct {
 }
 
 type GeneratedPasswordRow struct {
+	SourceRow   int    `json:"sourceRow"`
 	Username    string `json:"username"`
 	StudentCode string `json:"studentCode"`
 	FullName    string `json:"fullName"`
 	Password    string `json:"password"`
 }
 
+type StudentImportRowError struct {
+	SourceRow   int    `json:"sourceRow"`
+	StudentCode string `json:"studentCode"`
+	FullName    string `json:"fullName"`
+	Email       string `json:"email"`
+	Phone       string `json:"phone"`
+	Username    string `json:"username"`
+	Password    string `json:"password"`
+	Message     string `json:"message"`
+}
+
 type studentRow struct {
-	Code     string
-	FullName string
-	Email    string
-	Phone    string
-	Username string
-	Password string
+	SourceRow int
+	Code      string
+	FullName  string
+	Email     string
+	Phone     string
+	Username  string
+	Password  string
 }
 
 func Authenticate(ctx context.Context, db *pgxpool.Pool, payload LoginRequest) (LoginResult, error) {
@@ -161,13 +216,24 @@ func Authenticate(ctx context.Context, db *pgxpool.Pool, payload LoginRequest) (
 	return LoginResult{Username: username, Role: role, DisplayName: displayName}, nil
 }
 
-func ListClasses(ctx context.Context, db *pgxpool.Pool) ([]ClassSummary, error) {
+func ListClasses(ctx context.Context, db *pgxpool.Pool, teacherUserID int64) ([]ClassSummary, error) {
 	rows, err := db.Query(ctx, `
-		SELECT id, class_code, class_name
-		FROM classes
-		WHERE class_status = 'active'
-		ORDER BY class_code, class_name
-	`)
+		SELECT c.id, c.class_code, c.class_name,
+			COUNT(DISTINCT cm.student_user_id) FILTER (WHERE cm.member_status = 'active')::int AS member_count,
+			COUNT(DISTINCT e.id) FILTER (WHERE e.created_by_user_id = $1)::int AS exam_count
+		FROM classes c
+		LEFT JOIN teacher_class_assignments tca
+			ON tca.class_id = c.id
+			AND tca.teacher_user_id = $1
+			AND tca.assignment_status = 'active'
+		LEFT JOIN class_members cm ON cm.class_id = c.id
+		LEFT JOIN exam_targets et ON et.class_id = c.id
+		LEFT JOIN exams e ON e.id = et.exam_id
+		WHERE c.class_status = 'active'
+			AND (c.created_by_user_id = $1 OR c.homeroom_teacher_user_id = $1 OR tca.teacher_user_id IS NOT NULL)
+		GROUP BY c.id, c.class_code, c.class_name
+		ORDER BY c.class_code, c.class_name
+	`, teacherUserID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +242,7 @@ func ListClasses(ctx context.Context, db *pgxpool.Pool) ([]ClassSummary, error) 
 	classes := []ClassSummary{}
 	for rows.Next() {
 		var class ClassSummary
-		if err := rows.Scan(&class.ID, &class.ClassCode, &class.ClassName); err != nil {
+		if err := rows.Scan(&class.ID, &class.ClassCode, &class.ClassName, &class.MemberCount, &class.ExamCount); err != nil {
 			return nil, err
 		}
 		classes = append(classes, class)
@@ -184,7 +250,119 @@ func ListClasses(ctx context.Context, db *pgxpool.Pool) ([]ClassSummary, error) 
 	return classes, rows.Err()
 }
 
-func ImportStudentsFromXLSX(ctx context.Context, db *pgxpool.Pool, classCode, className, filename string, content []byte) (StudentImportResult, error) {
+func ClassDetailByID(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64) (ClassDetail, error) {
+	if teacherUserID <= 0 || classID <= 0 {
+		return ClassDetail{}, fmt.Errorf("lớp không hợp lệ")
+	}
+	var detail ClassDetail
+	if err := db.QueryRow(ctx, `
+		SELECT c.id, c.class_code, c.class_name,
+			COUNT(DISTINCT cm.student_user_id) FILTER (WHERE cm.member_status = 'active')::int,
+			COUNT(DISTINCT e.id) FILTER (WHERE e.created_by_user_id = $1)::int,
+			COALESCE(ROUND(AVG(ea.score_final) FILTER (WHERE ea.attempt_status IN ('submitted', 'expired')), 2)::text, '--')
+		FROM classes c
+		LEFT JOIN teacher_class_assignments tca
+			ON tca.class_id = c.id
+			AND tca.teacher_user_id = $1
+			AND tca.assignment_status = 'active'
+		LEFT JOIN class_members cm ON cm.class_id = c.id
+		LEFT JOIN exam_targets et ON et.class_id = c.id
+		LEFT JOIN exams e ON e.id = et.exam_id AND e.created_by_user_id = $1
+		LEFT JOIN exam_attempts ea ON ea.exam_id = e.id
+		WHERE c.id = $2
+			AND c.class_status = 'active'
+			AND (c.created_by_user_id = $1 OR c.homeroom_teacher_user_id = $1 OR tca.teacher_user_id IS NOT NULL)
+		GROUP BY c.id, c.class_code, c.class_name
+	`, teacherUserID, classID).Scan(&detail.ID, &detail.ClassCode, &detail.ClassName, &detail.MemberCount, &detail.ExamCount, &detail.AverageScore); err != nil {
+		return ClassDetail{}, err
+	}
+	members, err := classMembers(ctx, db, teacherUserID, classID)
+	if err != nil {
+		return ClassDetail{}, err
+	}
+	exams, err := classExams(ctx, db, teacherUserID, classID)
+	if err != nil {
+		return ClassDetail{}, err
+	}
+	detail.Members = members
+	detail.Exams = exams
+	return detail, nil
+}
+
+func UpdateClass(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64, payload ClassUpdateRequest) (ClassSummary, error) {
+	classCode := strings.TrimSpace(payload.ClassCode)
+	className := strings.TrimSpace(payload.ClassName)
+	if classCode == "" || className == "" {
+		return ClassSummary{}, fmt.Errorf("thiếu mã lớp hoặc tên lớp")
+	}
+	if ok, err := teacherCanUseClass(ctx, db, teacherUserID, classID); err != nil || !ok {
+		if err != nil {
+			return ClassSummary{}, err
+		}
+		return ClassSummary{}, fmt.Errorf("không có quyền sửa lớp này")
+	}
+	var summary ClassSummary
+	if err := db.QueryRow(ctx, `
+		UPDATE classes
+		SET class_code = $1, class_name = $2, updated_at = NOW()
+		WHERE id = $3 AND class_status = 'active'
+		RETURNING id, class_code, class_name
+	`, classCode, className, classID).Scan(&summary.ID, &summary.ClassCode, &summary.ClassName); err != nil {
+		return ClassSummary{}, err
+	}
+	return summary, nil
+}
+
+func ArchiveClass(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64) error {
+	if ok, err := teacherCanUseClass(ctx, db, teacherUserID, classID); err != nil || !ok {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("không có quyền xóa lớp này")
+	}
+	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `UPDATE class_members SET member_status = 'inactive', left_at = COALESCE(left_at, NOW()) WHERE class_id = $1 AND member_status = 'active'`, classID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `UPDATE teacher_class_assignments SET assignment_status = 'inactive' WHERE class_id = $1 AND teacher_user_id = $2`, classID, teacherUserID); err != nil {
+		return err
+	}
+	command, err := tx.Exec(ctx, `UPDATE classes SET class_status = 'archived', updated_at = NOW() WHERE id = $1 AND class_status = 'active'`, classID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return fmt.Errorf("không tìm thấy lớp cần xóa")
+	}
+	return tx.Commit(ctx)
+}
+
+func RemoveClassMember(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64, studentUserID int64) error {
+	if ok, err := teacherCanUseClass(ctx, db, teacherUserID, classID); err != nil || !ok {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("không có quyền sửa lớp này")
+	}
+	command, err := db.Exec(ctx, `
+		UPDATE class_members
+		SET member_status = 'inactive', left_at = COALESCE(left_at, NOW()), updated_at = NOW()
+		WHERE class_id = $1 AND student_user_id = $2 AND member_status = 'active'
+	`, classID, studentUserID)
+	if err != nil {
+		return err
+	}
+	if command.RowsAffected() == 0 {
+		return fmt.Errorf("không tìm thấy sinh viên trong lớp")
+	}
+	return nil
+}
+
+func ImportStudentsFromXLSX(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classCode, className, filename string, content []byte) (StudentImportResult, error) {
 	rows, err := parseXLSXRows(content)
 	if err != nil {
 		return StudentImportResult{}, err
@@ -192,12 +370,121 @@ func ImportStudentsFromXLSX(ctx context.Context, db *pgxpool.Pool, classCode, cl
 	if len(rows) == 0 {
 		return StudentImportResult{}, fmt.Errorf("file %s không có dữ liệu sinh viên", filename)
 	}
-	return importStudentRows(ctx, db, classCode, className, rows)
+	return importStudentRows(ctx, db, teacherUserID, classCode, className, rows)
 }
 
-func ImportStudents(ctx context.Context, db *pgxpool.Pool, payload StudentImportRequest) (StudentImportResult, error) {
+func ImportStudents(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, payload StudentImportRequest) (StudentImportResult, error) {
 	rows := parseManualRows(payload.Rows)
-	return importStudentRows(ctx, db, payload.ClassCode, payload.ClassName, rows)
+	return importStudentRows(ctx, db, teacherUserID, payload.ClassCode, payload.ClassName, rows)
+}
+
+func classMembers(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64) ([]ClassMember, error) {
+	rows, err := db.Query(ctx, `
+		WITH teacher_exams AS (
+			SELECT e.id
+			FROM exams e
+			JOIN exam_targets et ON et.exam_id = e.id
+			WHERE e.created_by_user_id = $1 AND et.class_id = $2
+		),
+		attempts AS (
+			SELECT ea.student_user_id,
+				COUNT(*)::int AS attempt_count,
+				COALESCE(MAX(ea.score_final) FILTER (WHERE ea.attempt_status IN ('submitted', 'expired')), 0)::float8 AS best_score,
+				MAX(COALESCE(ea.submitted_at, ea.client_last_seen_at, ea.started_at)) AS last_seen
+			FROM exam_attempts ea
+			JOIN teacher_exams te ON te.id = ea.exam_id
+			GROUP BY ea.student_user_id
+		)
+		SELECT u.id, u.username, sp.student_code, sp.full_name,
+			COALESCE(sp.email, ''), COALESCE(sp.phone, ''),
+			COALESCE(a.attempt_count, 0),
+			COALESCE(a.best_score, 0)::float8,
+			a.last_seen
+		FROM class_members cm
+		JOIN users u ON u.id = cm.student_user_id
+		JOIN student_profiles sp ON sp.user_id = u.id
+		LEFT JOIN attempts a ON a.student_user_id = u.id
+		WHERE cm.class_id = $2 AND cm.member_status = 'active'
+		ORDER BY sp.student_code, sp.full_name
+	`, teacherUserID, classID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	members := []ClassMember{}
+	for rows.Next() {
+		var member ClassMember
+		var bestScore float64
+		var lastSeen *time.Time
+		if err := rows.Scan(&member.UserID, &member.Username, &member.StudentCode, &member.FullName, &member.Email, &member.Phone, &member.AttemptCount, &bestScore, &lastSeen); err != nil {
+			return nil, err
+		}
+		member.BestScore = importScoreText(bestScore)
+		member.LastSeen = importTimeText(lastSeen)
+		members = append(members, member)
+	}
+	return members, rows.Err()
+}
+
+func classExams(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64) ([]ClassExamSummary, error) {
+	rows, err := db.Query(ctx, `
+		SELECT e.id, e.title, e.exam_status::text,
+			COUNT(DISTINCT ea.student_user_id) FILTER (WHERE ea.attempt_status IN ('submitted', 'expired'))::int AS submitted,
+			COUNT(DISTINCT cm.student_user_id) FILTER (WHERE cm.member_status = 'active')::int AS total,
+			COALESCE(ROUND(AVG(ea.score_final) FILTER (WHERE ea.attempt_status IN ('submitted', 'expired')), 2)::text, '--') AS average
+		FROM exams e
+		JOIN exam_targets et ON et.exam_id = e.id
+		LEFT JOIN class_members cm ON cm.class_id = et.class_id
+		LEFT JOIN exam_attempts ea ON ea.exam_id = e.id AND ea.student_user_id = cm.student_user_id
+		WHERE e.created_by_user_id = $1 AND et.class_id = $2
+		GROUP BY e.id, e.title, e.exam_status
+		ORDER BY e.created_at DESC
+	`, teacherUserID, classID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	exams := []ClassExamSummary{}
+	for rows.Next() {
+		var exam ClassExamSummary
+		if err := rows.Scan(&exam.ID, &exam.Title, &exam.Status, &exam.Submitted, &exam.Total, &exam.Average); err != nil {
+			return nil, err
+		}
+		exams = append(exams, exam)
+	}
+	return exams, rows.Err()
+}
+
+func teacherCanUseClass(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classID int64) (bool, error) {
+	var ok bool
+	err := db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM classes c
+			LEFT JOIN teacher_class_assignments tca
+				ON tca.class_id = c.id
+				AND tca.teacher_user_id = $1
+				AND tca.assignment_status = 'active'
+			WHERE c.id = $2
+				AND c.class_status = 'active'
+				AND (c.created_by_user_id = $1 OR c.homeroom_teacher_user_id = $1 OR tca.teacher_user_id IS NOT NULL)
+		)
+	`, teacherUserID, classID).Scan(&ok)
+	return ok, err
+}
+
+func importScoreText(value float64) string {
+	if value == 0 {
+		return "--"
+	}
+	return fmt.Sprintf("%.2f", value)
+}
+
+func importTimeText(value *time.Time) string {
+	if value == nil {
+		return "--"
+	}
+	return value.Local().Format("02/01/2006 15:04")
 }
 
 func UpdateStudentPassword(ctx context.Context, db *pgxpool.Pool, payload StudentPasswordUpdateRequest) error {
@@ -212,7 +499,7 @@ func UpdateStudentPassword(ctx context.Context, db *pgxpool.Pool, payload Studen
 		WHERE sp.user_id = u.id
 			AND ($2 = '' OR u.username = $2)
 			AND ($3 = '' OR sp.student_code = $3)
-	`, password, strings.TrimSpace(payload.Username), strings.TrimSpace(payload.StudentCode))
+	`, HashPassword(password), strings.TrimSpace(payload.Username), strings.TrimSpace(payload.StudentCode))
 	if err != nil {
 		return err
 	}
@@ -278,6 +565,7 @@ func CreateTeacherAccount(ctx context.Context, db *pgxpool.Pool, payload Teacher
 	if password == "" {
 		password = username
 	}
+	passwordHash := HashPassword(password)
 
 	var userID int64
 	var created bool
@@ -292,7 +580,7 @@ func CreateTeacherAccount(ctx context.Context, db *pgxpool.Pool, payload Teacher
 			RETURNING id, xmax = 0 AS inserted
 		)
 		SELECT id, inserted FROM upsert_user
-	`, username, password).Scan(&userID, &created); err != nil {
+	`, username, passwordHash).Scan(&userID, &created); err != nil {
 		return TeacherCreateResult{}, err
 	}
 	if _, err := tx.Exec(ctx, `INSERT INTO user_roles (user_id, role_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, userID, roleID); err != nil {
@@ -398,13 +686,23 @@ func toASCIILower(value string) string {
 	return replacer.Replace(strings.ToLower(value))
 }
 
-func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, className string, rows []studentRow) (StudentImportResult, error) {
+func importStudentRows(ctx context.Context, db *pgxpool.Pool, teacherUserID int64, classCode, className string, rows []studentRow) (StudentImportResult, error) {
 	classCode = strings.TrimSpace(classCode)
 	className = strings.TrimSpace(className)
 	if classCode == "" || className == "" {
 		return StudentImportResult{}, fmt.Errorf("thiếu mã lớp hoặc tên lớp")
 	}
-	result := StudentImportResult{ClassCode: classCode, ClassName: className}
+	if teacherUserID <= 0 {
+		return StudentImportResult{}, fmt.Errorf("thiếu giáo viên sở hữu lớp")
+	}
+	result := StudentImportResult{
+		ClassCode:          classCode,
+		ClassName:          className,
+		ImportedStudents:   []ImportedStudent{},
+		GeneratedPasswords: []GeneratedPasswordRow{},
+		Errors:             []string{},
+		RowErrors:          []StudentImportRowError{},
+	}
 	tx, err := db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return result, err
@@ -413,11 +711,26 @@ func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, classNa
 
 	var classID int64
 	if err := tx.QueryRow(ctx, `
-		INSERT INTO classes (class_code, class_name)
-		VALUES ($1, $2)
-		ON CONFLICT (class_code) DO UPDATE SET class_name = EXCLUDED.class_name, updated_at = NOW()
+		INSERT INTO classes (class_code, class_name, homeroom_teacher_user_id, created_by_user_id)
+		VALUES ($1, $2, $3, $3)
+		ON CONFLICT (class_code) DO UPDATE SET
+			class_name = EXCLUDED.class_name,
+			homeroom_teacher_user_id = COALESCE(classes.homeroom_teacher_user_id, EXCLUDED.homeroom_teacher_user_id),
+			created_by_user_id = COALESCE(classes.created_by_user_id, EXCLUDED.created_by_user_id),
+			class_status = 'active',
+			updated_at = NOW()
 		RETURNING id
-	`, classCode, className).Scan(&classID); err != nil {
+	`, classCode, className, teacherUserID).Scan(&classID); err != nil {
+		return result, err
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO teacher_class_assignments (class_id, teacher_user_id, permission, assignment_status, assigned_by_user_id)
+		VALUES ($1, $2, 'owner', 'active', $2)
+		ON CONFLICT (class_id, teacher_user_id) DO UPDATE
+		SET permission = EXCLUDED.permission,
+			assignment_status = 'active',
+			updated_at = NOW()
+	`, classID, teacherUserID); err != nil {
 		return result, err
 	}
 
@@ -428,8 +741,23 @@ func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, classNa
 
 	for index, row := range rows {
 		row.normalize()
+		sourceRow := row.SourceRow
+		if sourceRow <= 0 {
+			sourceRow = index + 1
+		}
 		if row.Code == "" || row.FullName == "" {
-			result.Errors = append(result.Errors, fmt.Sprintf("Dòng %d thiếu mã sinh viên hoặc họ tên", index+1))
+			message := "thiếu mã sinh viên hoặc họ tên"
+			result.Errors = append(result.Errors, fmt.Sprintf("Dòng %d %s", sourceRow, message))
+			result.RowErrors = append(result.RowErrors, StudentImportRowError{
+				SourceRow:   sourceRow,
+				StudentCode: row.Code,
+				FullName:    row.FullName,
+				Email:       row.Email,
+				Phone:       row.Phone,
+				Username:    row.Username,
+				Password:    row.Password,
+				Message:     message,
+			})
 			result.Skipped++
 			continue
 		}
@@ -439,6 +767,7 @@ func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, classNa
 		if row.Password == "" {
 			row.Password = row.Code
 		}
+		passwordHash := HashPassword(row.Password)
 
 		var userID int64
 		var inserted bool
@@ -450,7 +779,7 @@ func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, classNa
 				RETURNING id, xmax = 0 AS inserted
 			)
 			SELECT id, inserted FROM upsert_user
-		`, row.Username, row.Password).Scan(&userID, &inserted); err != nil {
+		`, row.Username, passwordHash).Scan(&userID, &inserted); err != nil {
 			return result, err
 		}
 		if inserted {
@@ -480,9 +809,9 @@ func importStudentRows(ctx context.Context, db *pgxpool.Pool, classCode, classNa
 			return result, err
 		}
 		result.AddedToClass++
-		imported := ImportedStudent{Username: row.Username, StudentCode: row.Code, FullName: row.FullName, TemporaryPassword: row.Password}
+		imported := ImportedStudent{SourceRow: sourceRow, Username: row.Username, StudentCode: row.Code, FullName: row.FullName, TemporaryPassword: row.Password}
 		result.ImportedStudents = append(result.ImportedStudents, imported)
-		result.GeneratedPasswords = append(result.GeneratedPasswords, GeneratedPasswordRow{Username: row.Username, StudentCode: row.Code, FullName: row.FullName, Password: row.Password})
+		result.GeneratedPasswords = append(result.GeneratedPasswords, GeneratedPasswordRow{SourceRow: sourceRow, Username: row.Username, StudentCode: row.Code, FullName: row.FullName, Password: row.Password})
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return result, err
@@ -520,7 +849,7 @@ func parseManualRows(source string) []studentRow {
 		for len(parts) < 6 {
 			parts = append(parts, "")
 		}
-		rows = append(rows, studentRow{Code: parts[0], FullName: parts[1], Email: parts[2], Phone: parts[3], Username: parts[4], Password: parts[5]})
+		rows = append(rows, studentRow{SourceRow: lineIndex + 1, Code: parts[0], FullName: parts[1], Email: parts[2], Phone: parts[3], Username: parts[4], Password: parts[5]})
 	}
 	return rows
 }
@@ -542,30 +871,97 @@ func parseXLSXRows(content []byte) ([]studentRow, error) {
 	if len(values) == 0 {
 		return nil, nil
 	}
-	header := map[string]int{}
-	for index, cell := range values[0] {
-		header[normalizeHeader(cell)] = index
+	header, headerRowIndex, hasHeader := findStudentHeader(values)
+	if !hasHeader {
+		rows := []studentRow{}
+		for rowIndex, row := range values {
+			if rowIsEmpty(row) {
+				continue
+			}
+			student := studentRow{
+				SourceRow: rowIndex + 1,
+				Code:      cellAt(row, 0),
+				FullName:  cellAt(row, 1),
+				Email:     cellAt(row, 2),
+				Phone:     cellAt(row, 3),
+				Username:  cellAt(row, 4),
+				Password:  cellAt(row, 5),
+			}
+			if student.hasImportData() {
+				rows = append(rows, student)
+			}
+		}
+		return rows, nil
 	}
 	get := func(row []string, names ...string) string {
 		for _, name := range names {
-			if index, ok := header[name]; ok && index < len(row) {
+			if index, ok := header[normalizeHeader(name)]; ok && index < len(row) {
 				return row[index]
 			}
 		}
 		return ""
 	}
 	rows := []studentRow{}
-	for _, row := range values[1:] {
-		rows = append(rows, studentRow{
-			Code:     get(row, "masv", "ma sv", "mssv", "studentcode"),
-			FullName: get(row, "hoten", "ho va ten", "họ và tên", "fullname"),
-			Email:    get(row, "email"),
-			Phone:    get(row, "sdt", "so dien thoai", "phone"),
-			Username: get(row, "taikhoan", "tai khoan", "username"),
-			Password: get(row, "matkhau", "mat khau", "password"),
-		})
+	for offset, row := range values[headerRowIndex+1:] {
+		if rowIsEmpty(row) {
+			continue
+		}
+		student := studentRow{
+			SourceRow: headerRowIndex + offset + 2,
+			Code:      get(row, "ma sv", "masv", "mssv", "ma sinh vien", "student code", "student id"),
+			FullName:  get(row, "ho ten", "ho va ten", "ten sinh vien", "ho ten sinh vien", "fullname", "name"),
+			Email:     get(row, "email"),
+			Phone:     get(row, "sdt", "so dien thoai", "dien thoai", "phone", "mobile"),
+			Username:  get(row, "tai khoan", "ten dang nhap", "username", "account"),
+			Password:  get(row, "mat khau", "password"),
+		}
+		if student.hasImportData() {
+			rows = append(rows, student)
+		}
 	}
 	return rows, nil
+}
+
+func findStudentHeader(values [][]string) (map[string]int, int, bool) {
+	for rowIndex, row := range values {
+		header := map[string]int{}
+		for index, cell := range row {
+			key := normalizeHeader(cell)
+			if key != "" {
+				header[key] = index
+			}
+		}
+		if hasAnyHeader(header, "ma sv", "masv", "mssv", "ma sinh vien", "student code", "student id") &&
+			hasAnyHeader(header, "ho ten", "ho va ten", "ten sinh vien", "ho ten sinh vien", "fullname", "name") {
+			return header, rowIndex, true
+		}
+	}
+	return nil, 0, false
+}
+
+func hasAnyHeader(header map[string]int, names ...string) bool {
+	for _, name := range names {
+		if _, ok := header[normalizeHeader(name)]; ok {
+			return true
+		}
+	}
+	return false
+}
+
+func rowIsEmpty(row []string) bool {
+	for _, cell := range row {
+		if strings.TrimSpace(cell) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+func cellAt(row []string, index int) string {
+	if index < 0 || index >= len(row) {
+		return ""
+	}
+	return row[index]
 }
 
 func readSharedStrings(reader *zip.Reader) ([]string, error) {
@@ -686,9 +1082,18 @@ func (row *studentRow) normalize() {
 	row.Password = strings.TrimSpace(row.Password)
 }
 
+func (row studentRow) hasImportData() bool {
+	return strings.TrimSpace(row.Code) != "" ||
+		strings.TrimSpace(row.FullName) != "" ||
+		strings.TrimSpace(row.Email) != "" ||
+		strings.TrimSpace(row.Phone) != "" ||
+		strings.TrimSpace(row.Username) != "" ||
+		strings.TrimSpace(row.Password) != ""
+}
+
 func normalizeHeader(value string) string {
-	value = strings.ToLower(strings.TrimSpace(value))
-	replacer := strings.NewReplacer("đ", "d", "Đ", "d", " ", "", "_", "", "-", "")
+	value = toASCIILower(strings.TrimSpace(value))
+	replacer := strings.NewReplacer(" ", "", "_", "", "-", "", "/", "", ".", "")
 	return replacer.Replace(value)
 }
 
@@ -699,6 +1104,11 @@ func passwordMatches(stored, password string) bool {
 	sum := sha256.Sum256([]byte(password))
 	hexPassword := hex.EncodeToString(sum[:])
 	return stored == hexPassword || stored == "sha256:"+hexPassword
+}
+
+func HashPassword(password string) string {
+	sum := sha256.Sum256([]byte(password))
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 func ReadMultipartFile(file multipart.File) ([]byte, error) {

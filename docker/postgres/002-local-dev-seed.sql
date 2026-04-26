@@ -3,12 +3,17 @@ BEGIN;
 -- Local-only recovery seed.
 -- Do not mount this file in production. Keep it for local restore after
 -- `docker compose down -v` so login and dashboard flows are usable again.
+--
+-- Current local credentials:
+--   admin / Admin@ExamHub-2026#N7q
+--   gv-cntt-01 / Teacher@CNTT-2026#K48
+--   lnit / Student@22004320-2026#Lnit
 
 INSERT INTO users (username, password_hash, account_status)
 VALUES
-    ('admin', '123456', 'active'),
-    ('gv-cntt-01', '123456', 'active'),
-    ('lnit', '123456', 'active')
+    ('admin', 'sha256:45972f49ed270f43ec5175b6530e844d1d580cca33ca06d79bf94c6b5dad49b4', 'active'),
+    ('gv-cntt-01', 'sha256:f03b701ecb426d5cf2cfb8b5385a3e69a90f24122ff0e7987f0d5f6adcfefa2c', 'active'),
+    ('lnit', 'sha256:c2e05e7a579450a895f1d8b9c362e101ffc27b9949fa0bba836558319e48cafd', 'active')
 ON CONFLICT (username) DO UPDATE
 SET password_hash = EXCLUDED.password_hash,
     account_status = EXCLUDED.account_status,

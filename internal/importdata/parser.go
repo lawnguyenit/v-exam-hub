@@ -29,11 +29,15 @@ const (
 )
 
 var (
-	questionLinePattern          = regexp.MustCompile(`(?i)^\s*(?:câu|cau|question|q)\s*(\d{1,4})\s*[:.)/\]-]*\s*(.*)$`)
+	questionLinePattern          = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u|cau|question|q)\s*(\d{1,4})\s*[:.)/\]-]*\s*(.*)$`)
 	numberedQuestionPattern      = regexp.MustCompile(`^\s*(\d{1,4})\s*[/.)]+\s*(.{1,})$`)
 	looseNumberedQuestionPattern = regexp.MustCompile(`^\s*(\d{1,4})\s+(.{8,})$`)
-	unnumberedQuestionPattern    = regexp.MustCompile(`(?i)^\s*(?:câu\s*hỏi|cau\s*hoi|question)\s*[:.)/\]-]*\s*(.*)$`)
+	decimalFragmentPattern       = regexp.MustCompile(`^\s*\d+[\.,]\d+\b`)
+	unnumberedQuestionPattern    = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u\s*h.{0,4}i|cau\s*hoi|question)\s*[:.)/\]-]*\s*(.*)$`)
+	embeddedQuestionPattern      = regexp.MustCompile(`(?i)\s+((?:c.{0,4}u|question|q)\s*\d{1,4}(?:\s*[:.)/\]-]+|\s+).+)$`)
+	bareQuestionWordPattern      = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u|question|q)\s*$`)
 	optionLinePattern            = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]?\s+(.+)$`)
+	optionLabelOnlyPattern       = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]\s*$`)
 	lowercaseListLinePattern     = regexp.MustCompile(`^\s*[a-h]\s*[-.)]\s+.+$`)
 	imagePlaceholderPattern      = regexp.MustCompile(`^\s*\[Hình\s+\d+\]\s*$`)
 	selectOnePattern             = regexp.MustCompile(`(?i)^\s*(?:select\s+one|chọn\s+một|chon\s+mot)\s*:?$`)
@@ -48,15 +52,26 @@ var (
 )
 
 type ParseUploadResult struct {
-	ImportBatchID int64            `json:"importBatchId,omitempty"`
-	RawFile       []byte           `json:"-"`
-	FileSHA256    string           `json:"fileSha256,omitempty"`
-	File          FileInfo         `json:"file"`
-	Extract       ExtractInfo      `json:"extract"`
-	Assets        []ExtractedAsset `json:"-"`
-	Questions     []ParsedQuestion `json:"questions"`
-	Summary       ParseSummary     `json:"summary"`
-	Message       string           `json:"message"`
+	ImportBatchID       int64                      `json:"importBatchId,omitempty"`
+	RawFile             []byte                     `json:"-"`
+	FileSHA256          string                     `json:"fileSha256,omitempty"`
+	File                FileInfo                   `json:"file"`
+	Extract             ExtractInfo                `json:"extract"`
+	Assets              []ExtractedAsset           `json:"-"`
+	Questions           []ParsedQuestion           `json:"questions"`
+	Summary             ParseSummary               `json:"summary"`
+	DuplicateCandidates []ImportDuplicateCandidate `json:"duplicateCandidates,omitempty"`
+	Message             string                     `json:"message"`
+}
+
+type ImportDuplicateCandidate struct {
+	BatchID               int64  `json:"batchId"`
+	Title                 string `json:"title"`
+	SourceName            string `json:"sourceName"`
+	ExistingQuestionCount int    `json:"existingQuestionCount"`
+	MatchingQuestionCount int    `json:"matchingQuestionCount"`
+	NewQuestionCount      int    `json:"newQuestionCount"`
+	CreatedAt             string `json:"createdAt"`
 }
 
 type FileInfo struct {
@@ -109,11 +124,12 @@ type ParseSummary struct {
 }
 
 type draftQuestion struct {
-	sourceOrder   int
-	contentParts  []string
-	options       []ParsedOption
-	correctLabel  string
-	expectOptions bool
+	sourceOrder     int
+	contentParts    []string
+	options         []ParsedOption
+	correctLabel    string
+	expectOptions   bool
+	explicitOptions bool
 }
 
 func ParseUpload(file multipart.File, header *multipart.FileHeader) (ParseUploadResult, error) {
@@ -417,7 +433,10 @@ func extractDocxXML(reader io.Reader) (string, error) {
 				paragraph.WriteString(strconv.Itoa(imageCount))
 				paragraph.WriteString("] ")
 			}
-			if typed.Name.Local == "br" || typed.Name.Local == "tab" {
+			if typed.Name.Local == "br" {
+				flushParagraph()
+			}
+			if typed.Name.Local == "tab" {
 				paragraph.WriteByte(' ')
 			}
 		case xml.EndElement:
@@ -668,7 +687,7 @@ func firstWords(text string, maxWords int) string {
 }
 
 func ParseText(source string) []ParsedQuestion {
-	lines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n"), "\n")
+	lines := parserLines(source)
 	var drafts []draftQuestion
 	answerMap := map[int]string{}
 	var current *draftQuestion
@@ -684,8 +703,7 @@ func ParseText(source string) []ParsedQuestion {
 		}
 	}
 
-	for _, raw := range lines {
-		line := strings.Join(strings.Fields(raw), " ")
+	for _, line := range lines {
 		if line == "" {
 			continue
 		}
@@ -698,7 +716,7 @@ func ParseText(source string) []ParsedQuestion {
 			}
 			continue
 		}
-		if imagePlaceholderPattern.MatchString(line) {
+		if isImagePlaceholderLine(line) {
 			if current != nil {
 				appendVisualLine(current, line)
 			}
@@ -721,7 +739,7 @@ func ParseText(source string) []ParsedQuestion {
 		}
 
 		var question []string
-		if !looksLikeAnswerList(line) {
+		if !looksLikeAnswerList(line) && !looksLikeDecimalFragment(line) {
 			question = questionLinePattern.FindStringSubmatch(line)
 			if question == nil {
 				question = numberedQuestionPattern.FindStringSubmatch(line)
@@ -731,15 +749,19 @@ func ParseText(source string) []ParsedQuestion {
 			}
 		}
 		if question != nil {
-			pushCurrent()
-			order := fallbackOrder
-			if parsed, ok := atoi(question[1]); ok {
-				order = parsed
+			parsedOrder, validOrder := atoi(question[1])
+			if !validOrder || parsedOrder <= 0 {
+				question = nil
 			}
+		}
+		if question != nil {
+			pushCurrent()
+			order, _ := atoi(question[1])
 			current = &draftQuestion{
-				sourceOrder:  order,
-				contentParts: nonEmpty(question[2]),
-				options:      []ParsedOption{},
+				sourceOrder:   order,
+				contentParts:  nonEmpty(question[2]),
+				options:       []ParsedOption{},
+				expectOptions: strings.HasSuffix(strings.TrimSpace(question[2]), "?"),
 			}
 			fallbackOrder = order + 1
 			continue
@@ -748,9 +770,10 @@ func ParseText(source string) []ParsedQuestion {
 		if questionText := unnumberedQuestionPattern.FindStringSubmatch(line); questionText != nil && strings.TrimSpace(questionText[1]) != "" {
 			pushCurrent()
 			current = &draftQuestion{
-				sourceOrder:  fallbackOrder,
-				contentParts: nonEmpty(questionText[1]),
-				options:      []ParsedOption{},
+				sourceOrder:   fallbackOrder,
+				contentParts:  nonEmpty(questionText[1]),
+				options:       []ParsedOption{},
+				expectOptions: true,
 			}
 			fallbackOrder++
 			continue
@@ -759,9 +782,10 @@ func ParseText(source string) []ParsedQuestion {
 		if looksLikeLooseQuestion(line, current) {
 			pushCurrent()
 			current = &draftQuestion{
-				sourceOrder:  fallbackOrder,
-				contentParts: nonEmpty(line),
-				options:      []ParsedOption{},
+				sourceOrder:   fallbackOrder,
+				contentParts:  nonEmpty(line),
+				options:       []ParsedOption{},
+				expectOptions: true,
 			}
 			fallbackOrder++
 			continue
@@ -774,6 +798,16 @@ func ParseText(source string) []ParsedQuestion {
 					Content: strings.TrimSpace(option[2]),
 				})
 				current.expectOptions = true
+				current.explicitOptions = true
+				continue
+			}
+			if option := optionLabelOnlyPattern.FindStringSubmatch(line); option != nil {
+				current.options = append(current.options, ParsedOption{
+					Label:   strings.ToUpper(option[1]),
+					Content: "",
+				})
+				current.expectOptions = true
+				current.explicitOptions = true
 				continue
 			}
 			if shouldInferUnlabeledOption(current, line) {
@@ -785,7 +819,6 @@ func ParseText(source string) []ParsedQuestion {
 			}
 		}
 
-		collectAnswerPairs(line, answerMap)
 		if current == nil {
 			continue
 		}
@@ -808,6 +841,10 @@ func ParseText(source string) []ParsedQuestion {
 	return applyCrossQuestionWarnings(questions)
 }
 
+func looksLikeDecimalFragment(line string) bool {
+	return decimalFragmentPattern.MatchString(line)
+}
+
 func atoi(value string) (int, bool) {
 	n := 0
 	for _, char := range value {
@@ -817,6 +854,55 @@ func atoi(value string) (int, bool) {
 		n = n*10 + int(char-'0')
 	}
 	return n, true
+}
+
+func parserLines(source string) []string {
+	rawLines := strings.Split(strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n"), "\n")
+	normalized := make([]string, 0, len(rawLines))
+	for _, raw := range rawLines {
+		line := strings.Join(strings.Fields(raw), " ")
+		if line == "" {
+			continue
+		}
+		normalized = append(normalized, line)
+	}
+
+	lines := make([]string, 0, len(normalized))
+	for index := 0; index < len(normalized); index++ {
+		line := normalized[index]
+		if bareQuestionWordPattern.MatchString(line) && index+1 < len(normalized) {
+			if _, ok := atoi(strings.Trim(normalized[index+1], " :.)/]-")); ok {
+				line = line + " " + normalized[index+1]
+				index++
+			}
+		}
+		lines = append(lines, splitEmbeddedQuestionLine(line)...)
+	}
+	return lines
+}
+
+func splitEmbeddedQuestionLine(line string) []string {
+	if questionLinePattern.MatchString(line) || numberedQuestionPattern.MatchString(line) || looseNumberedQuestionPattern.MatchString(line) {
+		return []string{line}
+	}
+	match := embeddedQuestionPattern.FindStringSubmatchIndex(line)
+	if match == nil || match[0] <= 0 || len(match) < 4 {
+		return []string{line}
+	}
+	prefix := strings.TrimSpace(line[:match[0]])
+	suffix := strings.TrimSpace(line[match[2]:match[3]])
+	if prefix == "" || suffix == "" {
+		return []string{line}
+	}
+	return []string{prefix, suffix}
+}
+
+func isImagePlaceholderLine(line string) bool {
+	if imagePlaceholderPattern.MatchString(line) {
+		return true
+	}
+	lower := strings.ToLower(strings.TrimSpace(line))
+	return strings.HasPrefix(lower, "[h") && strings.HasSuffix(lower, "]") && strings.Contains(lower, "nh ")
 }
 
 func nonEmpty(value string) []string {
@@ -833,20 +919,27 @@ func shouldSkipParserLine(line string) bool {
 		return true
 	}
 	lower := strings.ToLower(trimmed)
-	return lower == "đoạn văn câu hỏi" || lower == "doan van cau hoi"
+	return trimmed == ":" || trimmed == "." || lower == "đoạn văn câu hỏi" || lower == "doan van cau hoi"
 }
 
 func shouldInferUnlabeledOption(current *draftQuestion, line string) bool {
 	if current == nil || len(current.options) >= 8 || lowercaseListLinePattern.MatchString(line) {
 		return false
 	}
-	if current.expectOptions {
+	if current.explicitOptions {
+		return false
+	}
+	if len(current.options) > 0 {
+		last := strings.TrimSpace(current.options[len(current.options)-1].Content)
+		if last == "" {
+			return false
+		}
+		return current.expectOptions && len(current.options) < 4 && utf8.RuneCountInString(line) <= 120
+	}
+	if current.expectOptions && utf8.RuneCountInString(line) <= 120 {
 		return true
 	}
-	if len(current.options) > 0 && len(current.options) < 4 && utf8.RuneCountInString(line) <= 120 {
-		return true
-	}
-	return len(current.contentParts) == 1 && len(current.options) == 0 && utf8.RuneCountInString(line) <= 120
+	return false
 }
 
 func looksLikeLooseQuestion(line string, current *draftQuestion) bool {
@@ -858,11 +951,6 @@ func looksLikeLooseQuestion(line string, current *draftQuestion) bool {
 
 func appendVisualLine(current *draftQuestion, line string) {
 	if current == nil {
-		return
-	}
-	if len(current.options) > 0 {
-		last := &current.options[len(current.options)-1]
-		last.Content = strings.TrimSpace(last.Content + " " + line)
 		return
 	}
 	current.contentParts = append(current.contentParts, line)
@@ -997,8 +1085,8 @@ func scoreQuestion(draft draftQuestion) ParsedQuestion {
 	if !hasValidAnswer && confidence >= 80 {
 		confidence = 79
 	}
-	if len(draft.options) > 4 && confidence >= 80 {
-		confidence = 79
+	if (len(draft.options) > 4 || duplicate) && confidence >= 60 {
+		confidence = 59
 	}
 
 	status := "fail"
@@ -1043,6 +1131,10 @@ func applyCrossQuestionWarnings(questions []ParsedQuestion) []ParsedQuestion {
 
 func duplicateQuestionKey(question ParsedQuestion) string {
 	return strconv.Itoa(question.SourceOrder) + "|" + normalizeAnswerText(question.Content)
+}
+
+func QuestionContentKey(content string) string {
+	return normalizeAnswerText(content)
 }
 
 func summarize(questions []ParsedQuestion) ParseSummary {

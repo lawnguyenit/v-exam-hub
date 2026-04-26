@@ -35,13 +35,17 @@ type DraftQuestion = {
   options: ParsedOption[];
   correctLabel?: string;
   expectOptions?: boolean;
+  explicitOptions?: boolean;
 };
 
 const questionLinePattern = /^\s*(?:câu|cau|question|q)\s*(\d{1,4})\s*[:.)/\]-]*\s*(.*)$/i;
 const numberedQuestionPattern = /^\s*(\d{1,4})\s*[/.)]+\s*(.{1,})$/;
 const looseNumberedQuestionPattern = /^\s*(\d{1,4})\s+(.{8,})$/;
+const decimalFragmentPattern = /^\s*\d+[\.,]\d+\b/;
 const unnumberedQuestionPattern = /^\s*(?:câu\s*hỏi|cau\s*hoi|question)\s*[:.)/\]-]*\s*(.*)$/i;
+const embeddedQuestionPattern = /\s+((?:c.{0,4}u|question|q)\s*\d{1,4}\s*[:.)/\]-]+\s*.+)$/i;
 const optionLinePattern = /^\s*([A-H])\s*[.)\]:-]?\s+(.+)$/;
+const optionLabelOnlyPattern = /^\s*([A-H])\s*[.)\]:-]\s*$/;
 const lowercaseListLinePattern = /^\s*[a-h]\s*[-.)]\s+.+$/;
 const imagePlaceholderPattern = /^\s*\[Hình\s+\d+\]\s*$/;
 const selectOnePattern = /^\s*(?:select\s+one|chọn\s+một|chon\s+mot)\s*:?$/i;
@@ -49,7 +53,7 @@ const answerLinePattern = /^\s*(?:đáp\s*án|dap\s*an|đ\/a|d\/a|answer|key)\s*
 const redAnswerLinePattern = /^\s*\[đáp án màu đỏ\]\s*(.+)$/i;
 
 export function parseExamText(source: string): ParseResult {
-  const lines = source.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  const lines = parserLines(source);
   const drafts: DraftQuestion[] = [];
   const answerMap = new Map<number, string>();
   let current: DraftQuestion | undefined;
@@ -61,8 +65,7 @@ export function parseExamText(source: string): ParseResult {
     if (current.contentParts.length || current.options.length) drafts.push(current);
   }
 
-  for (const rawLine of lines) {
-    const line = rawLine.replace(/\s+/g, " ").trim();
+  for (const line of lines) {
     if (!line || shouldSkipParserLine(line)) continue;
 
     if (selectOnePattern.test(line)) {
@@ -70,7 +73,7 @@ export function parseExamText(source: string): ParseResult {
       continue;
     }
 
-    if (imagePlaceholderPattern.test(line)) {
+    if (isImagePlaceholderLine(line)) {
       if (current) appendVisualLine(current, line);
       continue;
     }
@@ -89,9 +92,10 @@ export function parseExamText(source: string): ParseResult {
       continue;
     }
 
-    const questionMatch = looksLikeAnswerList(line)
+    let questionMatch = looksLikeAnswerList(line) || looksLikeDecimalFragment(line)
       ? undefined
       : line.match(questionLinePattern) || line.match(numberedQuestionPattern) || line.match(looseNumberedQuestionPattern);
+    if (questionMatch && Number(questionMatch[1]) <= 0) questionMatch = undefined;
     if (questionMatch) {
       pushCurrent();
       const parsedOrder = Number(questionMatch[1]);
@@ -134,6 +138,18 @@ export function parseExamText(source: string): ParseResult {
         content: optionMatch[2].trim(),
       });
       current.expectOptions = true;
+      current.explicitOptions = true;
+      continue;
+    }
+
+    const optionLabelOnly = line.match(optionLabelOnlyPattern);
+    if (current && optionLabelOnly) {
+      current.options.push({
+        label: optionLabelOnly[1].toUpperCase(),
+        content: "",
+      });
+      current.expectOptions = true;
+      current.explicitOptions = true;
       continue;
     }
 
@@ -177,6 +193,35 @@ export function recheckParsedQuestions(questions: ParsedQuestion[]): ParseResult
   return { questions: rescored, summary: summarize(rescored) };
 }
 
+function parserLines(source: string) {
+  return source.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")
+    .flatMap((rawLine) => splitEmbeddedQuestionLine(rawLine.replace(/\s+/g, " ").trim()))
+    .filter(Boolean);
+}
+
+function splitEmbeddedQuestionLine(line: string): string[] {
+  if (!line) return [];
+  if (looksLikeDecimalFragment(line)) return [line];
+  if (questionLinePattern.test(line) || numberedQuestionPattern.test(line) || looseNumberedQuestionPattern.test(line)) {
+    return [line];
+  }
+  const match = line.match(embeddedQuestionPattern);
+  if (!match?.index || !match[1]) return [line];
+  const prefix = line.slice(0, match.index).trim();
+  const suffix = match[1].trim();
+  return prefix && suffix ? [prefix, suffix] : [line];
+}
+
+function isImagePlaceholderLine(line: string) {
+  if (imagePlaceholderPattern.test(line)) return true;
+  const lower = line.trim().toLowerCase();
+  return lower.startsWith("[h") && lower.endsWith("]") && lower.includes("nh ");
+}
+
+function looksLikeDecimalFragment(line: string) {
+  return decimalFragmentPattern.test(line);
+}
+
 function trimDraft(draft: DraftQuestion) {
   draft.contentParts = draft.contentParts.map((part) => part.trim()).filter(Boolean);
   draft.options = draft.options
@@ -185,6 +230,8 @@ function trimDraft(draft: DraftQuestion) {
 }
 
 function shouldSkipParserLine(line: string) {
+  const trimmed = line.trim();
+  if (trimmed === ":" || trimmed === ".") return true;
   if (line.length >= 5 && line.replace(/-/g, "").trim() === "") return true;
   const lower = line.toLowerCase();
   return lower === "đoạn văn câu hỏi" || lower === "doan van cau hoi";
@@ -192,9 +239,13 @@ function shouldSkipParserLine(line: string) {
 
 function shouldInferUnlabeledOption(current: DraftQuestion, line: string) {
   if (current.options.length >= 8 || lowercaseListLinePattern.test(line)) return false;
-  if (current.expectOptions) return true;
-  if (current.options.length > 0 && current.options.length < 4 && line.length <= 120) return true;
-  return current.contentParts.length === 1 && current.options.length === 0 && line.length <= 120;
+  if (current.explicitOptions) return false;
+  if (current.options.length > 0) {
+    const last = current.options[current.options.length - 1]?.content.trim() ?? "";
+    if (!last) return false;
+    return Boolean(current.expectOptions) && current.options.length < 4 && line.length <= 120;
+  }
+  return Boolean(current.expectOptions) && line.length <= 120;
 }
 
 function looksLikeLooseQuestion(line: string, current?: DraftQuestion) {
@@ -202,11 +253,6 @@ function looksLikeLooseQuestion(line: string, current?: DraftQuestion) {
 }
 
 function appendVisualLine(current: DraftQuestion, line: string) {
-  if (current.options.length > 0) {
-    const lastOption = current.options[current.options.length - 1];
-    lastOption.content = `${lastOption.content} ${line}`.trim();
-    return;
-  }
   current.contentParts.push(line);
   current.expectOptions = true;
 }
@@ -252,6 +298,7 @@ function scoreQuestion(draft: DraftQuestion): ParsedQuestion {
 
   if (draft.options.length >= 4) {
     confidence += 30;
+    if (draft.options.length > 4) warnings.push("Co hon 4 lua chon, can kiem tra cau nay co bi dinh dong hay khong.");
   }
   else if (draft.options.length >= 2) {
     confidence += 18;
@@ -275,6 +322,7 @@ function scoreQuestion(draft: DraftQuestion): ParsedQuestion {
   else warnings.push("Chưa tìm thấy đáp án đúng.");
 
   if (!hasValidAnswer && confidence >= 80) confidence = 79;
+  if ((draft.options.length > 4 || uniqueLabels.size !== labels.length) && confidence >= 60) confidence = 59;
   const status = confidence >= 80 ? "pass" : confidence >= 60 ? "review" : "fail";
 
   return {

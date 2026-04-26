@@ -1,0 +1,354 @@
+Nên dùng RDS PostgreSQL riêng, không push PostgreSQL thành image riêng cho production ECS.
+
+Postgres container chỉ nên dùng local/dev hoặc demo rất nhỏ. Nếu chạy DB trong ECS thì mất volume khi task thay đổi, backup/restore khó, scaling và upgrade rủi ro. Với web thi cử, DB là state quan trọng, nên để RDS PostgreSQL quản lý backup, storage, restore, network, SSL.
+
+Tôi đã chỉnh project theo hướng deploy ECS/ECR:
+
+Backend đọc PORT, DB_URL, APP_ENV, CORS_ALLOWED_ORIGINS từ env: main.go, cors.go
+Nếu APP_ENV=production mà thiếu DB_URL thì backend fail ngay, tránh lỡ dùng localhost.
+Frontend nginx không hardcode IP local nữa, dùng BACKEND_UPSTREAM: frontend/nginx.conf.template
+Docker compose local chuyển sang env-driven: docker-compose.yaml
+Thêm file mẫu cấu hình local/ECS: .env.example, .env.ecs.example
+Thêm hướng dẫn triển khai: DEPLOYMENT.md
+Thêm .dockerignore để build ECR nhẹ hơn: .dockerignore, frontend/.dockerignore
+Kết quả kiểm tra:
+
+go test ./... pass.
+docker build backend pass.
+docker build frontend pass.
+docker compose config pass.
+Backend build context đã giảm mạnh, từ hơn 360MB xuống còn rất nhỏ.
+Cấu hình ECS nên dùng:
+
+APP_ENV=production
+PORT=8080
+DB_URL=host=<rds-endpoint> port=5432 user=<user> password=<password> dbname=<db> sslmode=require
+DB_STARTUP_TIMEOUT=90s
+Nếu frontend và backend chạy chung một ECS task:
+
+BACKEND_UPSTREAM=http://127.0.0.1:8080
+Nếu tách thành 2 ECS service thì dùng ALB route /api/* sang backend, còn /* sang frontend, hoặc dùng Cloud Map cho BACKEND_UPSTREAM.
+
+Với ECR: push 2 image là backend và frontend. Không cần push Postgres image riêng; DB dùng RDS.
+
+
+DEPLOYMENT.md
+Document · MD
+
+Open
+
+14 files changed
++269
+-71
+Undo
+.dockerignore
+.env.ecs.example
+.env.example
+.gitignore
+DEPLOYMENT.md
+Dockerfile
+cors.go
+docker-compose.yaml
+frontend/.dockerignore
+frontend/.env.production
+frontend/Dockerfile
+frontend/nginx.conf
+frontend/nginx.conf.template
+main.go
+
+
+8:24 AM
+hướng dẫn full t up lên đến khi chạy được nào
+9:34 AM
+
+
+Worked for 1m 16s
+Dùng kiến trúc này là gọn nhất cho project hiện tại:
+
+Internet
+  -> ALB
+    -> ECS Fargate Task
+       - frontend nginx container :80
+       - backend Go container :8080
+    -> RDS PostgreSQL riêng
+Postgres không push lên ECR. ECR chỉ chứa frontend và backend. AWS ECR dùng để push/pull Docker image, còn database nên dùng RDS PostgreSQL để có storage, backup, restore ổn định hơn. AWS docs: ECR push image, RDS create DB, ECS env variables.
+
+1. Chuẩn bị local
+Ở D:\website-exam:
+
+aws configure
+aws sts get-caller-identity
+docker version
+Chọn region, ví dụ:
+
+$env:AWS_REGION="ap-southeast-1"
+$env:AWS_ACCOUNT_ID="<account_id_cua_m>"
+2. Tạo 2 repo ECR
+
+aws ecr create-repository --repository-name v-exam-backend --region $env:AWS_REGION
+aws ecr create-repository --repository-name v-exam-frontend --region $env:AWS_REGION
+Login ECR:
+
+aws ecr get-login-password --region $env:AWS_REGION | docker login --username AWS --password-stdin "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com"
+3. Build và push image
+
+Backend:
+
+docker build -t v-exam-backend .
+docker tag v-exam-backend:latest "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-backend:latest"
+docker push "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-backend:latest"
+Frontend:
+
+docker build -t v-exam-frontend .\frontend
+docker tag v-exam-frontend:latest "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-frontend:latest"
+docker push "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-frontend:latest"
+4. Tạo RDS PostgreSQL
+Trong AWS Console:
+
+RDS -> Create database
+Engine: PostgreSQL
+Template: Dev/Test trước đã
+DB name: v_exam_hub
+Username: ví dụ exam_admin
+Password: tự đặt mạnh
+Public access: nếu làm nhanh để test có thể bật tạm, nhưng production nên để private
+Security Group RDS: chỉ cho ECS security group truy cập port 5432
+Sau khi tạo xong, lấy endpoint dạng:
+
+xxx.ap-southeast-1.rds.amazonaws.com
+DB URL production sẽ là:
+
+host=<rds-endpoint> port=5432 user=exam_admin password=<password> dbname=v_exam_hub sslmode=require
+5. Import schema/data vào RDS
+Nếu RDS public tạm thời và máy m truy cập được:
+
+$env:PGPASSWORD="<password>"
+psql -h "<rds-endpoint>" -U exam_admin -d v_exam_hub -f "D:\website-exam\v-exam-hub-local-db.session.sql"
+Nếu RDS private, cách sạch hơn là dùng CloudShell/EC2 bastion trong cùng VPC rồi chạy psql từ đó.
+
+6. Tạo ECS Cluster
+ECS -> Clusters -> Create cluster:
+
+Cluster name: v-exam-cluster
+Infrastructure: AWS Fargate
+7. Tạo Task Definition
+Task definition dùng 2 container trong cùng 1 task.
+
+Task:
+
+Launch type: Fargate
+CPU/RAM khởi đầu:
+Nếu có LibreOffice xử lý .doc/.docx: nên bắt đầu 2 vCPU / 4GB RAM
+Nếu chỉ chạy web nhẹ: 1 vCPU / 2GB RAM
+Network mode: awsvpc
+Container backend:
+
+Image:
+<account>.dkr.ecr.<region>.amazonaws.com/v-exam-backend:latest
+Port: 8080
+Env:
+APP_ENV=production
+PORT=8080
+DB_URL=host=<rds-endpoint> port=5432 user=exam_admin password=<password> dbname=v_exam_hub sslmode=require
+DB_STARTUP_TIMEOUT=90s
+CORS_ALLOWED_ORIGINS=
+Container frontend:
+
+Image:
+<account>.dkr.ecr.<region>.amazonaws.com/v-exam-frontend:latest
+Port: 80
+Env:
+NGINX_PORT=80
+CLIENT_MAX_BODY_SIZE=64m
+BACKEND_UPSTREAM=http://127.0.0.1:8080
+Vì frontend và backend nằm cùng task, nginx gọi backend qua 127.0.0.1:8080.
+
+8. Tạo ALB
+EC2 -> Load Balancers -> Application Load Balancer:
+
+Internet-facing
+Listener: HTTP 80, sau này thêm HTTPS 443
+Target group:
+Type: IP
+Port: 80
+Health check path: /
+Security group:
+
+ALB SG:
+inbound 80, 443 từ internet
+ECS SG:
+inbound 80 từ ALB SG
+outbound được tới RDS 5432
+RDS SG:
+inbound 5432 từ ECS SG
+9. Tạo ECS Service
+Trong cluster:
+
+Create service
+Launch type: Fargate
+Task definition: task vừa tạo
+Desired tasks: 1
+Networking: cùng VPC/subnet với ALB/RDS
+Load balancer:
+container: frontend
+port: 80
+target group vừa tạo
+Deploy xong, mở DNS của ALB:
+
+http://<alb-dns-name>
+10. Kiểm tra lỗi thường gặp
+
+Nếu login báo 404 nginx:
+
+frontend gọi /api/... nhưng nginx chưa proxy đúng.
+Kiểm tra BACKEND_UPSTREAM=http://127.0.0.1:8080.
+Nếu backend không lên:
+
+Xem ECS task logs.
+Kiểm tra DB_URL.
+Kiểm tra RDS SG cho phép ECS SG vào 5432.
+Nếu import file Word lỗi:
+
+Backend image hiện có LibreOffice, nên task nên để ít nhất 2 vCPU / 4GB nếu xử lý file nặng.
+Nếu web chạy nhưng không có data:
+
+RDS chưa import v-exam-hub-local-db.session.sql.
+Hoặc app đang trỏ nhầm DB khác.
+11. Khi update code sau này
+Mỗi lần sửa code:
+
+docker build -t v-exam-backend .
+docker tag v-exam-backend:latest "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-backend:latest"
+docker push "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-backend:latest"
+
+docker build -t v-exam-frontend .\frontend
+docker tag v-exam-frontend:latest "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-frontend:latest"
+docker push "$env:AWS_ACCOUNT_ID.dkr.ecr.$env:AWS_REGION.amazonaws.com/v-exam-frontend:latest"
+Rồi vào ECS service -> Force new deployment.
+
+Điểm mấu chốt: production không dùng docker-compose để chạy DB nữa. Compose chỉ để local. ECS dùng image từ ECR, DB dùng RDS, toàn bộ thứ thay đổi theo môi trường đi qua env.
+
+
+Web preview
+Website
+Open
+
+
+9:36 AM
+báo cáo về project của t để t add tri thức ngữ cảnh hiện tại để các mô hình khác hỗ trợ
+9:40 AM
+
+
+Báo Cáo Project
+Project: v-exam-hub / website-exam
+
+Mục tiêu: xây dựng hệ thống kiểm tra độc lập cho sinh viên và giáo viên, tách khỏi e-learning trường. Backend Go, frontend React, database PostgreSQL. Hướng triển khai production: AWS ECS Fargate + ECR + RDS PostgreSQL.
+
+Kiến Trúc Hiện Tại
+Backend:
+
+Go HTTP server.
+Đọc config qua env: PORT, DB_URL, APP_ENV, CORS_ALLOWED_ORIGINS.
+Production bắt buộc có DB_URL, tránh fallback localhost.
+Có xử lý import đề cương, parser câu hỏi, tạo bài kiểm tra, tài khoản giáo viên/sinh viên, dashboard, thống kê.
+Frontend:
+
+React + Vite.
+Nginx serve static files.
+API gọi relative path /api/....
+Nginx proxy /api/ sang backend qua env BACKEND_UPSTREAM.
+Không còn hardcode IP/domain local trong bundle.
+Database:
+
+PostgreSQL.
+Local dùng container Postgres qua docker-compose.yaml.
+Production khuyến nghị dùng RDS PostgreSQL, không chạy Postgres như app container trong ECS.
+File schema/seed chính đang dùng: v-exam-hub-local-db.session.sql.
+Luồng Chính
+Role:
+
+Student / học sinh-sinh viên.
+Teacher / giáo viên.
+Admin.
+Login:
+
+Trang đầu chỉ chọn sinh viên hoặc giáo viên.
+Nếu tài khoản đăng nhập là admin thì chuyển sang trang admin.
+Login hiện đã dựa trên tài khoản được cấp, không còn nhập gì cũng vào được.
+Teacher:
+
+Dashboard hiển thị bài thi do chính giáo viên tạo.
+Danh sách bài thi có tìm kiếm, lọc trạng thái, cuộn.
+Có tạo bài kiểm tra, xem cấu hình, xoá bài.
+Có thống kê bài thi, snapshot bài đang diễn ra, export XLSX.
+Có tạo mã truy cập cho bài chính thức/điểm danh.
+Có quản lý/import sinh viên từ XLSX, tạo tài khoản sinh viên, đổi mật khẩu, export danh sách tài khoản.
+Admin có thêm quyền tạo tài khoản giáo viên.
+Student:
+
+Dashboard hiển thị bài có thể làm, lịch dự kiến, lịch sử, hồ sơ.
+Bài quá nhiều cần hiển thị dạng vùng cuộn.
+Khi làm bài: có danh sách câu, lọc câu chưa làm/đã làm/đặt cờ, đặt cờ câu hỏi, nộp bài có xác nhận.
+Sau nộp bài chuyển về lịch sử/kết quả.
+Có lịch sử bài thi và xem chi tiết câu sai.
+Import Đề Cương
+Mục tiêu:
+
+Giáo viên import đề cương vào ngân hàng câu hỏi.
+Parser local xử lý trước, không phụ thuộc AI.
+Hỗ trợ TXT/CSV/DOCX/PDF text; DOC cũ cần LibreOffice convert; PDF scan cần OCR sau.
+Parser nhận dạng câu hỏi/lựa chọn/đáp án mềm, chấp nhận format bẩn.
+Có phân loại pass, cần kiểm tra, lỗi.
+Giáo viên có thể sửa câu bằng modal, thêm/xoá lựa chọn, xoá câu lỗi/cần kiểm tra/pass.
+Chỉ câu pass mới được lưu vào ngân hàng câu hỏi.
+Có vấn đề đang theo dõi: câu có hình chỉ hiển thị [Hình n], cần xử lý asset/image nếu muốn render hình thật.
+Tạo Bài Kiểm Tra
+Cách đúng đã thống nhất:
+
+Tạo bài kiểm tra có 2 hướng:
+Import đề cương -> duyệt pass -> chuyển tiếp tạo bài.
+Tạo bài từ ngân hàng câu hỏi đã có.
+Không chọn từng câu thủ công là mặc định.
+Giáo viên chọn bộ đề cương/ngân hàng thuộc sở hữu của mình.
+Hệ thống lấy ngẫu nhiên số câu, có option xáo trộn câu và đảo đáp án.
+Nếu bài đã có lượt làm thì chỉ nên cho sửa cấu hình không làm lệch điểm lịch sử, ví dụ thời gian, số lần làm, mở/đóng, lịch mở; hạn chế sửa nguồn câu hoặc số câu nếu ảnh hưởng snapshot bài đã làm.
+Deploy Hiện Tại
+Đã chỉnh để deploy AWS:
+
+Backend image: build từ root Dockerfile.
+Frontend image: build từ frontend/Dockerfile.
+Frontend nginx dùng template: frontend/nginx.conf.template.
+Config mẫu:
+.env.example
+.env.ecs.example
+DEPLOYMENT.md
+.dockerignore và frontend/.dockerignore đã thêm để build image nhẹ hơn.
+Local compose vẫn có Postgres container để dev.
+Production nên dùng:
+ECR: chứa backend/frontend image.
+ECS Fargate: chạy frontend/backend.
+RDS PostgreSQL: database.
+ALB: expose frontend, proxy API.
+Env production quan trọng:
+
+APP_ENV=production
+PORT=8080
+DB_URL=host=<rds-endpoint> port=5432 user=<user> password=<password> dbname=v_exam_hub sslmode=require
+DB_STARTUP_TIMEOUT=90s
+CORS_ALLOWED_ORIGINS=
+Nếu frontend/backend cùng ECS task:
+
+BACKEND_UPSTREAM=http://127.0.0.1:8080
+Nếu tách service:
+
+BACKEND_UPSTREAM=http://<backend-service>.<namespace>:8080
+Vấn Đề Cần Nhớ
+
+Không nên push Postgres lên ECR để production.
+Không hardcode IP local/domain trong frontend.
+RDS phải import schema/seed trước khi app chạy ổn.
+Nếu dùng LibreOffice trong backend image để xử lý DOC/DOCX, ECS task nên bắt đầu từ khoảng 2 vCPU / 4GB RAM.
+Nếu chỉ chạy web/API nhẹ: 1 vCPU / 2GB RAM có thể đủ.
+Cần tiếp tục kiểm tra timezone vì từng có lỗi bài đã qua giờ nhưng vẫn hiện lịch dự kiến.
+Cần hoàn thiện image rendering cho câu hỏi có hình.
+Cần đảm bảo mỗi giáo viên chỉ thấy bài/ngân hàng/sinh viên thuộc phạm vi của mình, không dùng dữ liệu chung tràn role.s
