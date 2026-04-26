@@ -38,6 +38,7 @@
 
 .account-chip {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
@@ -92,7 +93,7 @@
 
 .dashboard-hero h1 {
   margin-top: 6px;
-  font-size: 3.4rem;
+  font-size: clamp(2.35rem, 5vw, 3.4rem);
 }
 
 .summary-strip {
@@ -240,6 +241,7 @@
 
 .history-table {
   display: grid;
+  max-width: 100%;
   max-height: 420px;
   overflow: auto;
   border: 1px solid var(--line);
@@ -258,6 +260,7 @@
 
 .history-row {
   display: grid;
+  min-width: 720px;
   grid-template-columns: minmax(180px, 1fr) 140px 90px 110px auto;
   align-items: center;
   gap: 12px;
@@ -411,6 +414,7 @@
   }
 
   .history-row {
+    min-width: 0;
     grid-template-columns: 1fr;
   }
 
@@ -427,6 +431,14 @@
   .student-topbar,
   .student-dashboard {
     padding: 18px;
+  }
+
+  .student-topbar {
+    align-items: stretch;
+  }
+
+  .account-chip {
+    width: 100%;
   }
 
   .dashboard-hero,

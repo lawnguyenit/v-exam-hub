@@ -13,17 +13,21 @@
 
 .teacher-nav {
   display: flex;
+  min-width: 0;
   gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
 }
 
 .nav-tab {
   min-height: 40px;
+  flex: 0 0 auto;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
   color: var(--muted);
   padding: 8px 12px;
-  font-weight: 800;
+  font-weight: 700;
   text-decoration: none;
 }
 
@@ -36,6 +40,7 @@
 
 .account-chip {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 10px;
   border: 1px solid var(--line);
@@ -78,7 +83,7 @@
   color: #8a3a3a;
   padding: 8px 12px;
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .logout-btn:hover,
@@ -131,7 +136,7 @@
 
 .dashboard-hero h1 {
   margin-top: 6px;
-  font-size: 3rem;
+  font-size: clamp(2.35rem, 4vw, 3rem);
 }
 
 .section-head h2 {
@@ -183,7 +188,7 @@
   color: var(--muted);
   padding: 8px 12px;
   font: inherit;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
 }
 
@@ -480,7 +485,7 @@
 
 .class-manager-hero h1 {
   margin-top: 4px;
-  font-size: 2.35rem;
+  font-size: clamp(2rem, 3.2vw, 2.35rem);
 }
 
 .class-manager-hero .lead {
@@ -643,6 +648,7 @@
 
 .class-member-table {
   display: grid;
+  max-width: 100%;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -650,6 +656,7 @@
 
 .class-member-row {
   display: grid;
+  min-width: 680px;
   grid-template-columns: 110px minmax(180px, 1fr) 140px 88px 120px 70px;
   gap: 10px;
   align-items: center;
@@ -986,7 +993,7 @@
   border-color: #b8d6c4;
   background: #eef7f1;
   color: var(--green-dark);
-  font-weight: 800;
+  font-weight: 700;
 }
 
 .attempt-picker {
@@ -1389,6 +1396,19 @@
   .teacher-topbar,
   .teacher-dashboard {
     padding: 18px;
+  }
+
+  .teacher-topbar {
+    align-items: stretch;
+  }
+
+  .teacher-account-actions {
+    justify-content: start;
+    flex-wrap: wrap;
+  }
+
+  .account-chip {
+    width: 100%;
   }
 
   .dashboard-hero,

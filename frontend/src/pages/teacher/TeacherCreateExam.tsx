@@ -592,6 +592,7 @@ export function TeacherCreateExam() {
                     className={activeImportGuideID === guide.id ? "active" : ""}
                     type="button"
                     key={guide.id}
+                    data-demo={guide.status === "demo" ? "true" : undefined}
                     aria-pressed={activeImportGuideID === guide.id}
                     onClick={() => setActiveImportGuideID(guide.id)}
                   >
