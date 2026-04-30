@@ -310,3 +310,149 @@ func TestParseUploadPDFDoesNotMergeNextQuestionIntoOption(t *testing.T) {
 		t.Fatalf("hex constants must not be mistaken for answer key H: %#v", movQuestion)
 	}
 }
+
+func TestParseUploadMoodleXMLPreservesLatexAndAnswers(t *testing.T) {
+	result := parseFixtureUpload(t, filepath.Join("input_test", "quiz_XML_De A3 (du phong).xml"))
+	if result.File.Kind != "xml" {
+		t.Fatalf("expected xml kind, got %q", result.File.Kind)
+	}
+	if result.Extract.Status != "text_extracted" {
+		t.Fatalf("expected Moodle XML text extraction, got %#v", result.Extract)
+	}
+	if result.Summary.Total != 10 {
+		t.Fatalf("expected 10 Moodle questions, got summary=%#v", result.Summary)
+	}
+	if result.Summary.Passed != 10 {
+		t.Fatalf("expected all Moodle questions to pass, got summary=%#v questions=%#v", result.Summary, result.Questions)
+	}
+	first := result.Questions[0]
+	if !strings.Contains(first.Content, `\(`) || !strings.Contains(first.Content, `M_{3\times2}`) {
+		t.Fatalf("LaTeX content was not preserved in first question: %q", first.Content)
+	}
+	if len(first.Options) != 4 || first.CorrectLabel == "" {
+		t.Fatalf("expected Moodle options and answer, got %#v", first)
+	}
+	foundCases := false
+	for _, question := range result.Questions {
+		if strings.Contains(question.Content, `\begin{cases}`) {
+			foundCases = true
+			break
+		}
+		for _, option := range question.Options {
+			if strings.Contains(option.Content, `\begin{cases}`) {
+				foundCases = true
+				break
+			}
+		}
+	}
+	if !foundCases {
+		t.Fatalf("expected piecewise LaTeX formula to be preserved, got questions=%#v", result.Questions)
+	}
+}
+
+func TestParseUploadStructuredCSV(t *testing.T) {
+	source := `question,A,B,C,D,answer
+"Thiết bị nào lưu trữ dữ liệu lâu dài?","RAM","Ổ cứng","CPU","Màn hình",B
+"Công thức \(2+2\) bằng bao nhiêu?","3","4","5","6",B`
+
+	result, err := ParseUpload(readSeekCloser{Reader: bytes.NewReader([]byte(source))}, &multipart.FileHeader{
+		Filename: "questions.csv",
+		Size:     int64(len(source)),
+	})
+	if err != nil {
+		t.Fatalf("parse csv: %v", err)
+	}
+	if result.File.Kind != "csv" {
+		t.Fatalf("expected csv kind, got %q", result.File.Kind)
+	}
+	if result.Summary.Total != 2 || result.Summary.Passed != 2 {
+		t.Fatalf("expected two passing CSV questions, got summary=%#v questions=%#v", result.Summary, result.Questions)
+	}
+	if result.Questions[0].CorrectLabel != "B" || result.Questions[1].CorrectLabel != "B" {
+		t.Fatalf("CSV answer column was not mapped: %#v", result.Questions)
+	}
+	if !strings.Contains(result.Questions[1].Content, `\(2+2\)`) {
+		t.Fatalf("CSV LaTeX content should be preserved: %#v", result.Questions[1])
+	}
+}
+
+func TestParseUploadAikenFormat(t *testing.T) {
+	source := `Thiết bị nào lưu dữ liệu lâu dài?
+A. RAM
+B. Ổ cứng
+C. CPU
+D. Màn hình
+ANSWER: B
+
+Công thức \(2+2\) bằng bao nhiêu?
+A. 3
+B. 4
+C. 5
+D. 6
+ANSWER: B`
+
+	result, err := ParseUpload(readSeekCloser{Reader: bytes.NewReader([]byte(source))}, &multipart.FileHeader{
+		Filename: "questions-aiken.txt",
+		Size:     int64(len(source)),
+	})
+	if err != nil {
+		t.Fatalf("parse aiken: %v", err)
+	}
+	if result.Summary.Total != 2 || result.Summary.Passed != 2 {
+		t.Fatalf("expected two passing Aiken questions, got summary=%#v questions=%#v", result.Summary, result.Questions)
+	}
+	if result.Questions[0].CorrectLabel != "B" || result.Questions[1].CorrectLabel != "B" {
+		t.Fatalf("Aiken answer lines were not mapped: %#v", result.Questions)
+	}
+	if !strings.Contains(result.Extract.DocumentTitle, "Aiken") {
+		t.Fatalf("expected Aiken adapter metadata, got extract=%#v", result.Extract)
+	}
+}
+
+func TestParseUploadGiftFormat(t *testing.T) {
+	source := `::Luu tru::Thiết bị nào lưu dữ liệu lâu dài? {
+~RAM
+=Ổ cứng
+~CPU
+~Màn hình
+}
+
+Công thức \(2+2\) bằng bao nhiêu? {~3 =4 ~5 ~6}`
+
+	result, err := ParseUpload(readSeekCloser{Reader: bytes.NewReader([]byte(source))}, &multipart.FileHeader{
+		Filename: "questions-gift.txt",
+		Size:     int64(len(source)),
+	})
+	if err != nil {
+		t.Fatalf("parse gift: %v", err)
+	}
+	if result.Summary.Total != 2 || result.Summary.Passed != 2 {
+		t.Fatalf("expected two passing GIFT questions, got summary=%#v questions=%#v", result.Summary, result.Questions)
+	}
+	if result.Questions[0].CorrectLabel != "B" || result.Questions[1].CorrectLabel != "B" {
+		t.Fatalf("GIFT correct choices were not mapped: %#v", result.Questions)
+	}
+	if !strings.Contains(result.Questions[1].Content, `\(2+2\)`) {
+		t.Fatalf("GIFT LaTeX content should be preserved: %#v", result.Questions[1])
+	}
+}
+
+func TestPublicImportSamplesParse(t *testing.T) {
+	fixtures := []string{
+		filepath.Join("frontend", "public", "import-samples", "examhub-sample.txt"),
+		filepath.Join("frontend", "public", "import-samples", "examhub-sample.csv"),
+		filepath.Join("frontend", "public", "import-samples", "examhub-aiken-sample.txt"),
+		filepath.Join("frontend", "public", "import-samples", "examhub-gift-sample.txt"),
+		filepath.Join("frontend", "public", "import-samples", "examhub-moodle-sample.xml"),
+		filepath.Join("frontend", "public", "import-samples", "examhub-sample.docx"),
+	}
+	for _, fixture := range fixtures {
+		result := parseFixtureUpload(t, fixture)
+		if result.Summary.Total == 0 {
+			t.Fatalf("sample %s should parse at least one question, got summary=%#v extract=%#v", fixture, result.Summary, result.Extract)
+		}
+		if result.Summary.Passed == 0 {
+			t.Fatalf("sample %s should have passing questions, got summary=%#v questions=%#v", fixture, result.Summary, result.Questions)
+		}
+	}
+}

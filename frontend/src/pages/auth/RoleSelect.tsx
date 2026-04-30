@@ -1,7 +1,43 @@
-import { Link } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { getCurrentSession } from "../../api";
 import { Brand } from "../../shared/Brand";
+import { clearAuth, writeAuth, type Role } from "../../storage";
+
+function dashboardFor(role: Role) {
+  if (role === "admin") return "/admin";
+  if (role === "teacher") return "/teacher";
+  return "/student";
+}
 
 export function RoleSelect() {
+  const navigate = useNavigate();
+  const [isRestoring, setIsRestoring] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentSession()
+      .then((auth) => {
+        if (cancelled) return;
+        writeAuth({
+          account: auth.username,
+          role: auth.role,
+          signedInAt: Date.now(),
+          displayName: auth.displayName,
+        });
+        navigate(dashboardFor(auth.role), { replace: true });
+      })
+      .catch(() => {
+        if (cancelled) return;
+        clearAuth();
+        setIsRestoring(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
+
   return (
     <main className="login-page login-shell" aria-label="Chọn tư cách đăng nhập">
       <section className="login-box role-box">
@@ -20,6 +56,7 @@ export function RoleSelect() {
             <strong>Vào dashboard làm bài</strong>
           </Link>
         </nav>
+        {isRestoring && <p className="form-message">Đang kiểm tra phiên đăng nhập...</p>}
       </section>
     </main>
   );

@@ -23,12 +23,13 @@ import { PageShell } from "../../shared/PageShell";
 
 const emptyFileState = "Chưa có file";
 
-type ImportGuideID = "txt" | "csv" | "docx" | "doc" | "pdfText" | "pdfScan";
+type ImportGuideID = "txt" | "csv" | "aiken" | "gift" | "xml" | "docx" | "doc" | "pdfText" | "pdfScan";
 
 type ImportGuide = {
   id: ImportGuideID;
   label: string;
   status?: "demo";
+  sampleHref?: string;
   title: string;
   summary: string;
   rules: string[];
@@ -39,6 +40,7 @@ const importGuides: ImportGuide[] = [
   {
     id: "txt",
     label: "TXT",
+    sampleHref: "/import-samples/examhub-sample.txt",
     title: "TXT thuần",
     summary: "Phù hợp khi giáo viên copy đề từ Word hoặc hệ thống cũ rồi lưu thành text.",
     rules: [
@@ -56,6 +58,7 @@ D. Màn hình
   {
     id: "csv",
     label: "CSV",
+    sampleHref: "/import-samples/examhub-sample.csv",
     title: "CSV bảng câu hỏi",
     summary: "Dùng khi đã có danh sách câu hỏi dạng bảng và muốn import nhanh, ít lỗi.",
     rules: [
@@ -67,8 +70,65 @@ D. Màn hình
 "2 + 2 bằng bao nhiêu?","3","4","5","6",B`,
   },
   {
+    id: "aiken",
+    label: "Aiken",
+    sampleHref: "/import-samples/examhub-aiken-sample.txt",
+    title: "Aiken",
+    summary: "Chuẩn TXT đơn giản hay dùng để import câu trắc nghiệm vào LMS: câu hỏi, các lựa chọn A-D và dòng ANSWER.",
+    rules: [
+      "Mỗi câu kết thúc bằng ANSWER: A, ANSWER: B, ANSWER: C hoặc ANSWER: D.",
+      "Lựa chọn dùng A., B., C., D. hoặc A), B), C), D).",
+      "Có thể dùng công thức LaTeX trong \\(...\\); hệ thống giữ nguyên để render ở giao diện.",
+    ],
+    example: `Thiết bị nào dùng để lưu trữ dữ liệu lâu dài?
+A. RAM
+B. Ổ cứng
+C. CPU
+D. Màn hình
+ANSWER: B`,
+  },
+  {
+    id: "gift",
+    label: "GIFT",
+    sampleHref: "/import-samples/examhub-gift-sample.txt",
+    title: "GIFT",
+    summary: "Chuẩn phổ biến của Moodle cho câu hỏi text. Dùng = cho đáp án đúng và ~ cho đáp án sai.",
+    rules: [
+      "Câu hỏi đặt trước cặp ngoặc { ... } chứa lựa chọn.",
+      "Đáp án đúng bắt đầu bằng =, đáp án sai bắt đầu bằng ~.",
+      "Có thể đặt tên câu bằng ::Tên câu:: trước nội dung.",
+    ],
+    example: `::Lưu trữ::Thiết bị nào dùng để lưu trữ dữ liệu lâu dài? {
+~RAM
+=Ổ cứng
+~CPU
+~Màn hình
+}`,
+  },
+  {
+    id: "xml",
+    label: "Moodle XML",
+    sampleHref: "/import-samples/examhub-moodle-sample.xml",
+    title: "Moodle XML",
+    summary: "Dùng khi xuất đề từ Moodle. Hệ thống đọc trực tiếp question, answer và fraction nên ổn định hơn rule parser text.",
+    rules: [
+      "Hỗ trợ question type multichoice; answer có fraction > 0 được nhận là đáp án đúng.",
+      "Công thức LaTeX trong \\(...\\) hoặc \\[...\\] được giữ nguyên và render ở giao diện.",
+      "Nếu một câu có nhiều đáp án đúng, phiên hiện tại lấy đáp án đúng đầu tiên và nên kiểm tra lại trước khi lưu.",
+    ],
+    example: `<quiz>
+  <question type="multichoice">
+    <name><text>Cau 1</text></name>
+    <questiontext format="html"><text><![CDATA[<p>Tinh \\(2+2\\)</p>]]></text></questiontext>
+    <answer fraction="0"><text>3</text></answer>
+    <answer fraction="100"><text>4</text></answer>
+  </question>
+</quiz>`,
+  },
+  {
     id: "docx",
     label: "DOCX",
+    sampleHref: "/import-samples/examhub-sample.docx",
     title: "Word DOCX",
     summary: "Định dạng nên ưu tiên cho đề có tiếng Việt, bảng hoặc hình ảnh.",
     rules: [
@@ -105,6 +165,7 @@ D. Lựa chọn D
     id: "pdfText",
     label: "PDF text",
     status: "demo",
+    sampleHref: "/import-samples/examhub-pdf-text-format.txt",
     title: "PDF có text",
     summary: "Đang ở mức demo. PDF xuất từ Word có thể tách được chữ, nhưng bảng, hình và bố cục nhiều cột vẫn cần duyệt kỹ.",
     rules: [
@@ -123,6 +184,7 @@ D. Lựa chọn D
     id: "pdfScan",
     label: "PDF scan",
     status: "demo",
+    sampleHref: "/import-samples/examhub-pdf-scan-checklist.txt",
     title: "PDF scan",
     summary: "Đang ở mức demo. PDF scan cần OCR nên kết quả phụ thuộc mạnh vào chất lượng ảnh, độ thẳng trang và bố cục đề.",
     rules: [
@@ -578,10 +640,10 @@ export function TeacherCreateExam() {
               <input
                 id="examFile"
                 type="file"
-                accept=".doc,.docx,.pdf,.txt,.rtf,.csv"
+                accept=".doc,.docx,.pdf,.txt,.rtf,.csv,.xml"
                 onChange={(event) => receiveSourceFile(event.target.files?.[0])}
               />
-              <p className="form-note">File đề cương sẽ được tách câu, duyệt pass, rồi chuyển tiếp sang bước tạo bài kiểm tra.</p>
+              <p className="form-note">Hệ thống tự nhận Moodle XML, GIFT, Aiken, CSV và TXT chuẩn. DOCX/PDF sẽ tách text trước rồi chạy cùng bộ nhận dạng.</p>
               <div className="format-guide-head">
                 <strong>Định dạng hỗ trợ</strong>
                 <span>Ấn vào từng định dạng để xem hướng dẫn import đúng.</span>
@@ -725,6 +787,11 @@ function ImportGuidePanel({ guide, onClose }: { guide: ImportGuide; onClose: () 
         <button className="ghost-btn compact" type="button" onClick={onClose}>Thu gọn</button>
       </div>
       <p className="form-note">{guide.summary}</p>
+      {guide.sampleHref && (
+        <a className="import-guide-download" href={guide.sampleHref} download>
+          Tải file mẫu {guide.label}
+        </a>
+      )}
       <div className="import-guide-rules">
         {guide.rules.map((rule) => (
           <span key={rule}>{rule}</span>

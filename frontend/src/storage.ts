@@ -7,6 +7,8 @@ export type AuthSession = {
   displayName?: string;
 };
 
+const authKey = "examhub:auth";
+
 export function readJSON<T>(storage: Storage, key: string): T | null {
   try {
     const raw = storage.getItem(key);
@@ -17,13 +19,22 @@ export function readJSON<T>(storage: Storage, key: string): T | null {
 }
 
 export function readAuth(): AuthSession | null {
-  return readJSON<AuthSession>(sessionStorage, "examhub:auth");
+  const auth = readJSON<AuthSession>(localStorage, authKey);
+  if (auth) return auth;
+
+  const legacyAuth = readJSON<AuthSession>(sessionStorage, authKey);
+  if (legacyAuth) {
+    writeAuth(legacyAuth);
+    sessionStorage.removeItem(authKey);
+  }
+  return legacyAuth;
 }
 
 export function writeAuth(auth: AuthSession) {
-  sessionStorage.setItem("examhub:auth", JSON.stringify(auth));
+  localStorage.setItem(authKey, JSON.stringify(auth));
 }
 
 export function clearAuth() {
-  sessionStorage.removeItem("examhub:auth");
+  localStorage.removeItem(authKey);
+  sessionStorage.removeItem(authKey);
 }

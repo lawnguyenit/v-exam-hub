@@ -1,0 +1,20 @@
+Cau 1: Thiet bi nao dung de luu tru du lieu lau dai?
+A. RAM
+B. O cung
+C. CPU
+D. Man hinh
+Dap an: B
+
+Cau 2: Cong thuc \(2+2\) bang bao nhieu?
+A. 3
+B. 4
+C. 5
+D. 6
+Dap an: B
+
+Cau 3: He dieu hanh co vai tro gi?
+A. Quan ly tai nguyen may tinh
+B. Soan thao van ban
+C. Thiet ke anh
+D. Tang toc mang
+Dap an: A

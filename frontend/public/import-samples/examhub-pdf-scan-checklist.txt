@@ -1,0 +1,8 @@
+PDF scan dang demo.
+
+Checklist truoc khi import:
+- Trang scan thang, ro, khong nghieng.
+- Do phan giai nen tu 200-300 DPI tro len.
+- Moi cau nen nam gon trong mot vung, tranh bo cuc nhieu cot.
+- Neu co hinh hoac bang, can kiem tra lai thu cong sau OCR.
+- Neu co file Word goc, nen import DOCX thay vi PDF scan.

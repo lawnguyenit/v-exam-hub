@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<quiz>
+  <question type="multichoice">
+    <name>
+      <text>Cau 1</text>
+    </name>
+    <questiontext format="html">
+      <text><![CDATA[<p>Tinh gia tri cua \(2+2\).</p>]]></text>
+    </questiontext>
+    <answer fraction="0"><text>3</text></answer>
+    <answer fraction="100"><text>4</text></answer>
+    <answer fraction="0"><text>5</text></answer>
+    <answer fraction="0"><text>6</text></answer>
+  </question>
+  <question type="multichoice">
+    <name>
+      <text>Cau 2</text>
+    </name>
+    <questiontext format="html">
+      <text><![CDATA[<p>Ma tran \(A_{2\times2}\) co bao nhieu phan tu?</p>]]></text>
+    </questiontext>
+    <answer fraction="0"><text>2</text></answer>
+    <answer fraction="100"><text>4</text></answer>
+    <answer fraction="0"><text>6</text></answer>
+    <answer fraction="0"><text>8</text></answer>
+  </question>
+</quiz>

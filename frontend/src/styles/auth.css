@@ -174,6 +174,37 @@ body.login-page {
   outline: none;
 }
 
+.login-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  background: rgba(16, 28, 21, 0.48);
+  padding: 20px;
+}
+
+.login-modal {
+  display: grid;
+  width: min(460px, 100%);
+  gap: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 24px;
+  box-shadow: 0 22px 60px rgba(23, 33, 27, 0.22);
+}
+
+.login-modal h2,
+.login-modal p {
+  margin: 0;
+}
+
+.login-modal p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.6;
+}
+
 @media (max-width: 560px) {
   .login-shell {
     place-items: stretch;

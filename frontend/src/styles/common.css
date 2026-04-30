@@ -81,6 +81,25 @@ h3 {
   white-space: pre-wrap;
 }
 
+.question-math {
+  white-space: normal;
+}
+
+.question-math-display {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0;
+}
+
+.rich-question-text .katex {
+  font-size: 1.02em;
+}
+
+.question-math-fallback {
+  font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+}
+
 .question-inline-image {
   display: block;
   width: auto;

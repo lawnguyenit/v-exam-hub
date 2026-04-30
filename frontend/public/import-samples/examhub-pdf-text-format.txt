@@ -1,0 +1,17 @@
+PDF text dang demo.
+
+Neu can on dinh, hay xuat PDF tu Word voi bo cuc mot cot, text that, khong scan anh.
+Noi dung trong PDF nen co dang:
+
+Cau 1: Noi dung cau hoi
+A. Lua chon A
+B. Lua chon B
+C. Lua chon C
+D. Lua chon D
+Dap an: A
+
+Tranh:
+- De chia nhieu cot
+- Bang phuc tap
+- Hinh nam chen giua lua chon
+- File scan anh khong co text

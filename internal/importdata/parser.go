@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/csv"
 	"encoding/hex"
 	"encoding/xml"
 	"errors"
+	"html"
 	"io"
 	"mime/multipart"
 	"os"
@@ -26,30 +28,36 @@ import (
 const (
 	maxUploadBytes             = 64 << 20
 	legacyDocConversionTimeout = 45 * time.Second
-	redAnswerMarker            = "[Đáp án màu đỏ]"
+	redAnswerMarker            = "[ÄÃ¡p Ã¡n mÃ u Ä‘á»]"
 )
 
 var (
-	questionLinePattern          = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u|cau|question|q)\s*(\d{1,4})\s*[:.)/\]-]*\s*(.*)$`)
-	numberedQuestionPattern      = regexp.MustCompile(`^\s*(\d{1,4})\s*[/.)]+\s*(.{1,})$`)
-	looseNumberedQuestionPattern = regexp.MustCompile(`^\s*(\d{1,4})\s+(.{8,})$`)
-	decimalFragmentPattern       = regexp.MustCompile(`^\s*\d+[\.,]\d+\b`)
-	unnumberedQuestionPattern    = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u\s*h.{0,4}i|cau\s*hoi|question)\s*[:.)/\]-]*\s*(.*)$`)
-	embeddedQuestionPattern      = regexp.MustCompile(`(?i)\s+((?:c.{0,4}u|question|q)\s*\d{1,4}(?:\s*[:.)/\]-]+|\s+).+)$`)
-	bareQuestionWordPattern      = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u|question|q)\s*$`)
-	optionLinePattern            = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]?\s+(.+)$`)
-	optionLabelOnlyPattern       = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]\s*$`)
-	lowercaseListLinePattern     = regexp.MustCompile(`^\s*[a-h]\s*[-.)]\s+.+$`)
-	imagePlaceholderPattern      = regexp.MustCompile(`(?i)^\s*\[H(?:ình|inh)\s+\d+(?:[^\]]*)?\]\s*$`)
-	selectOnePattern             = regexp.MustCompile(`(?i)^\s*(?:select\s+one|chọn\s+một|chon\s+mot)\s*:?$`)
-	answerLinePattern            = regexp.MustCompile(`(?i)^\s*(?:đáp\s*án|dap\s*an|đ/a|d/a|answer|key)\s*[:.)\]-]?\s*(.+)$`)
-	redAnswerLinePattern         = regexp.MustCompile(`(?i)^\s*\[đáp án màu đỏ\]\s*(.+)$`)
-	answerPairPattern            = regexp.MustCompile(`(?i)(?:câu|cau)?\s*(\d{1,4})\s*[.)/\]:-]?\s*([A-H])\b`)
-	singleAnswerPattern          = regexp.MustCompile(`(?i)\b([A-H])\b`)
-	pdfPagePattern               = regexp.MustCompile(`/Type\s*/Page\b`)
-	pdfImagePattern              = regexp.MustCompile(`/Subtype\s*/Image\b`)
-	pdfFontPattern               = regexp.MustCompile(`/Font\b`)
-	oleDocumentHeader            = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
+	questionLinePattern           = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u|cau|question|q)\s*(\d{1,4})\s*[:.)/\]-]*\s*(.*)$`)
+	questionMarkerBoundaryPattern = regexp.MustCompile(`(?i)(?:^|\s)(?:c.{0,4}u|cau|question|q)\s*\d{1,4}\s*[:.)/\]-]*`)
+	numberedQuestionPattern       = regexp.MustCompile(`^\s*(\d{1,4})\s*[/.)]+\s*(.{1,})$`)
+	looseNumberedQuestionPattern  = regexp.MustCompile(`^\s*(\d{1,4})\s+(.{8,})$`)
+	decimalFragmentPattern        = regexp.MustCompile(`^\s*\d+[\.,]\d+\b`)
+	unnumberedQuestionPattern     = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u\s*h.{0,4}i|cau\s*hoi|question)\s*[:.)/\]-]*\s*(.*)$`)
+	embeddedQuestionPattern       = regexp.MustCompile(`(?i)\s+((?:c.{0,4}u|question|q)\s*\d{1,4}(?:\s*[:.)/\]-]+|\s+).+)$`)
+	bareQuestionWordPattern       = regexp.MustCompile(`(?i)^\s*(?:c.{0,4}u|question|q)\s*$`)
+	optionLinePattern             = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]?\s+(.+)$`)
+	inlineOptionMarkerPattern     = regexp.MustCompile(`(?i)(?:^|\s)[A-H]\s*[.)\]:-]\s+`)
+	optionLabelOnlyPattern        = regexp.MustCompile(`^\s*([A-H])\s*[.)\]:-]\s*$`)
+	lowercaseListLinePattern      = regexp.MustCompile(`^\s*[a-h]\s*[-.)]\s+.+$`)
+	imagePlaceholderPattern       = regexp.MustCompile(`(?i)^\s*\[H(?:Ã¬nh|inh)\s+\d+(?:[^\]]*)?\]\s*$`)
+	selectOnePattern              = regexp.MustCompile(`(?i)^\s*(?:select\s+one|chá»n\s+má»™t|chon\s+mot)\s*:?$`)
+	answerLinePattern             = regexp.MustCompile(`(?i)^\s*(?:đáp\s*án|dap\s*an|Ä‘Ã¡p\s*Ã¡n|đ/a|Ä‘/a|d/a|answer|key)\s*[:.)\]-]?\s*(.+)$`)
+	redAnswerLinePattern          = regexp.MustCompile(`(?i)^\s*\[(?:đáp án màu đỏ|Ä‘Ã¡p Ã¡n mÃ u Ä‘á»)\]\s*(.+)$`)
+	answerPairPattern             = regexp.MustCompile(`(?i)(?:câu|cÃ¢u|cau)?\s*(\d{1,4})\s*[.)/\]:-]?\s*([A-H])\b`)
+	aikenAnswerPattern            = regexp.MustCompile(`(?i)^\s*(?:answer|key|dap\s*an)\s*[:.)\]-]?\s*([A-H])\s*$`)
+	singleAnswerPattern           = regexp.MustCompile(`(?i)\b([A-H])\b`)
+	pdfPagePattern                = regexp.MustCompile(`/Type\s*/Page\b`)
+	pdfImagePattern               = regexp.MustCompile(`/Subtype\s*/Image\b`)
+	pdfFontPattern                = regexp.MustCompile(`/Font\b`)
+	htmlBreakPattern              = regexp.MustCompile(`(?i)<\s*/?\s*(?:br|p|div|li|tr|td|th|h[1-6])\b[^>]*>`)
+	htmlTagPattern                = regexp.MustCompile(`(?s)<[^>]+>`)
+	moodleQuestionOrderPattern    = regexp.MustCompile(`(?i)(?:c.{0,4}u|cau|question|q)\s*(\d{1,4})\b`)
+	oleDocumentHeader             = []byte{0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1}
 )
 
 type ParseUploadResult struct {
@@ -172,7 +180,7 @@ func ParseUpload(file multipart.File, header *multipart.FileHeader) (ParseUpload
 	applyDocumentHeadings(&result.Extract, text)
 	result.Questions = ParseText(text)
 	result.Summary = summarize(result.Questions)
-	result.Message = "Server đã tách text và chạy parser local."
+	result.Message = "Server Ä‘Ã£ tÃ¡ch text vÃ  cháº¡y parser local."
 	return result, nil
 }
 
@@ -191,40 +199,404 @@ func ContentFingerprint(text string) string {
 }
 
 func extractContent(kind string, data []byte) (string, ExtractInfo, []ExtractedAsset) {
-	switch kind {
-	case "txt", "csv":
-		return cleanText(data), ExtractInfo{Status: "text_extracted"}, nil
-	case "docx":
-		text, assets, images, err := extractDocxPackage(data)
-		if err != nil {
-			return "", ExtractInfo{Status: "failed", Warning: "DOCX chưa tách được nội dung: " + err.Error()}, nil
-		}
-		return text, ExtractInfo{Status: "text_extracted", ImageCount: images}, assets
-	case "doc":
-		images := inspectEmbeddedImages(data)
-		if bytes.HasPrefix(data, oleDocumentHeader) {
-			return extractLegacyDoc(data, images)
-		}
-		return "", ExtractInfo{Status: "unsupported", ImageCount: images, Warning: "File .doc này không đúng header OLE cũ nên server chưa có bộ đọc phù hợp."}, nil
-	case "pdf":
-		text, err := extractPDF(data)
-		pages, images, fonts := inspectPDF(data)
-		if err == nil && strings.TrimSpace(text) != "" {
-			return text, ExtractInfo{Status: "text_extracted", PageEstimate: pages, ImageCount: images}, nil
-		}
-		if images > 0 && fonts == 0 {
-			return "", ExtractInfo{
-				Status:       "needs_ocr",
-				NeedsOCR:     true,
-				ImageCount:   images,
-				PageEstimate: pages,
-				Warning:      "PDF này giống dạng scan ảnh nên cần OCR trước khi parser local chạy được.",
-			}, nil
-		}
-		return "", ExtractInfo{Status: "failed", PageEstimate: pages, Warning: "PDF chưa tách được text. Cần thêm OCR hoặc bộ extract PDF mạnh hơn."}, nil
-	default:
-		return "", ExtractInfo{Status: "unsupported", Warning: "Định dạng này chưa được server hỗ trợ ở bước import đầu tiên."}, nil
+	if extractor := contentExtractors()[kind]; extractor != nil {
+		return extractor(data)
 	}
+	return "", ExtractInfo{Status: "unsupported", Warning: "Định dạng này chưa được server hỗ trợ ở bước import đầu tiên."}, nil
+}
+func normalizeExtractedText(kind string, text string, extract ExtractInfo) (string, ExtractInfo) {
+	source := strings.TrimSpace(text)
+	if source == "" {
+		return text, extract
+	}
+
+	if looksLikeMoodleXML(source) {
+		if converted, info, err := extractMoodleXML([]byte(source)); err == nil && strings.TrimSpace(converted) != "" {
+			info.PageEstimate = extract.PageEstimate
+			info.ImageCount = extract.ImageCount
+			info.NeedsConversion = extract.NeedsConversion
+			info.NeedsOCR = extract.NeedsOCR
+			info.Warning = joinWarnings(extract.Warning, info.Warning)
+			return converted, info
+		}
+	}
+
+	if converted, info, ok := extractAikenText(source); ok {
+		info.PageEstimate = extract.PageEstimate
+		info.ImageCount = extract.ImageCount
+		info.NeedsConversion = extract.NeedsConversion
+		info.NeedsOCR = extract.NeedsOCR
+		info.Warning = joinWarnings(extract.Warning, info.Warning)
+		return converted, info
+	}
+
+	if converted, info, ok := extractGiftText(source); ok {
+		info.PageEstimate = extract.PageEstimate
+		info.ImageCount = extract.ImageCount
+		info.NeedsConversion = extract.NeedsConversion
+		info.NeedsOCR = extract.NeedsOCR
+		info.Warning = joinWarnings(extract.Warning, info.Warning)
+		return converted, info
+	}
+
+	extract.Warning = joinWarnings(extract.Warning, formatFallbackWarning(kind))
+	return text, extract
+}
+
+func formatFallbackWarning(kind string) string {
+	switch kind {
+	case "doc", "docx", "pdf", "txt":
+		return "KhÃ´ng nháº­n diá»‡n chuáº©n Moodle XML, GIFT hoáº·c Aiken; há»‡ thá»‘ng dÃ¹ng rule parser má»m cho ná»™i dung Ä‘Ã£ tÃ¡ch."
+	default:
+		return ""
+	}
+}
+
+func joinWarnings(values ...string) string {
+	parts := make([]string, 0, len(values))
+	seen := map[string]bool{}
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" || seen[value] {
+			continue
+		}
+		seen[value] = true
+		parts = append(parts, value)
+	}
+	return strings.Join(parts, " ")
+}
+
+func looksLikeMoodleXML(source string) bool {
+	lower := strings.ToLower(strings.TrimSpace(source))
+	return strings.HasPrefix(lower, "<quiz") || strings.Contains(lower, "<question") && strings.Contains(lower, "<answer")
+}
+
+type normalizedQuestion struct {
+	Order        int
+	Content      string
+	Options      []ParsedOption
+	CorrectLabel string
+}
+
+func buildNormalizedQuestionText(questions []normalizedQuestion) string {
+	var builder strings.Builder
+	for index, question := range questions {
+		content := strings.Join(strings.Fields(question.Content), " ")
+		if content == "" || len(question.Options) == 0 {
+			continue
+		}
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		order := question.Order
+		if order <= 0 {
+			order = index + 1
+		}
+		builder.WriteString("Cau ")
+		builder.WriteString(strconv.Itoa(order))
+		builder.WriteString(": ")
+		builder.WriteString(content)
+		builder.WriteByte('\n')
+		for _, option := range question.Options {
+			if strings.TrimSpace(option.Label) == "" || strings.TrimSpace(option.Content) == "" {
+				continue
+			}
+			builder.WriteString(strings.ToUpper(option.Label))
+			builder.WriteString(". ")
+			builder.WriteString(strings.Join(strings.Fields(option.Content), " "))
+			builder.WriteByte('\n')
+		}
+		if question.CorrectLabel != "" {
+			builder.WriteString("Dap an: ")
+			builder.WriteString(strings.ToUpper(question.CorrectLabel))
+			builder.WriteByte('\n')
+		}
+	}
+	return strings.TrimSpace(builder.String())
+}
+
+type aikenDraft struct {
+	ContentParts []string
+	Options      []ParsedOption
+	CorrectLabel string
+}
+
+func extractAikenText(source string) (string, ExtractInfo, bool) {
+	lines := parserLines(source)
+	questions := []normalizedQuestion{}
+	var current *aikenDraft
+
+	flush := func() {
+		if current == nil {
+			return
+		}
+		content := strings.TrimSpace(strings.Join(current.ContentParts, " "))
+		if content != "" && len(current.Options) >= 2 && current.CorrectLabel != "" {
+			questions = append(questions, normalizedQuestion{
+				Order:        len(questions) + 1,
+				Content:      content,
+				Options:      current.Options,
+				CorrectLabel: current.CorrectLabel,
+			})
+		}
+		current = nil
+	}
+
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if matches := aikenAnswerPattern.FindStringSubmatch(line); len(matches) >= 2 {
+			if current != nil && len(current.Options) >= 2 {
+				if answer := strings.ToUpper(matches[1]); answer != "" {
+					current.CorrectLabel = answer
+					flush()
+					continue
+				}
+			}
+		}
+		if matches := optionLinePattern.FindStringSubmatch(line); len(matches) >= 3 {
+			if current == nil {
+				current = &aikenDraft{}
+			}
+			current.Options = append(current.Options, ParsedOption{
+				Label:   strings.ToUpper(matches[1]),
+				Content: strings.TrimSpace(matches[2]),
+			})
+			continue
+		}
+		if current != nil && len(current.Options) > 0 {
+			last := len(current.Options) - 1
+			current.Options[last].Content = strings.TrimSpace(current.Options[last].Content + " " + line)
+			continue
+		}
+		if current == nil {
+			current = &aikenDraft{}
+		}
+		current.ContentParts = append(current.ContentParts, line)
+	}
+	flush()
+
+	if len(questions) < 2 {
+		return "", ExtractInfo{}, false
+	}
+	text := buildNormalizedQuestionText(questions)
+	if text == "" {
+		return "", ExtractInfo{}, false
+	}
+	return text, ExtractInfo{
+		Status:        "text_extracted",
+		DocumentTitle: "Aiken question bank",
+		Warning:       "ÄÃ£ nháº­n diá»‡n Ä‘á»‹nh dáº¡ng Aiken: cÃ¢u há»i, lá»±a chá»n A-D vÃ  dÃ²ng ANSWER/ÄÃ¡p Ã¡n Ä‘Æ°á»£c chuáº©n hÃ³a trÆ°á»›c khi parser local cháº¡y.",
+	}, true
+}
+
+func firstAnswerLabel(value string) string {
+	matches := singleAnswerPattern.FindStringSubmatch(strings.ToUpper(value))
+	if len(matches) < 2 {
+		return ""
+	}
+	return strings.ToUpper(matches[1])
+}
+
+type giftChoice struct {
+	Content string
+	Correct bool
+}
+
+func extractGiftText(source string) (string, ExtractInfo, bool) {
+	blocks := giftBlocks(source)
+	if len(blocks) == 0 {
+		return "", ExtractInfo{}, false
+	}
+	questions := []normalizedQuestion{}
+	for _, block := range blocks {
+		choices := parseGiftChoices(block.Answers)
+		if len(choices) < 2 {
+			continue
+		}
+		options := make([]ParsedOption, 0, len(choices))
+		correctLabel := ""
+		for index, choice := range choices {
+			if index >= 8 {
+				break
+			}
+			label := string(rune('A' + index))
+			options = append(options, ParsedOption{Label: label, Content: choice.Content})
+			if correctLabel == "" && choice.Correct {
+				correctLabel = label
+			}
+		}
+		if correctLabel == "" {
+			continue
+		}
+		questions = append(questions, normalizedQuestion{
+			Order:        len(questions) + 1,
+			Content:      block.Question,
+			Options:      options,
+			CorrectLabel: correctLabel,
+		})
+	}
+	text := buildNormalizedQuestionText(questions)
+	if text == "" {
+		return "", ExtractInfo{}, false
+	}
+	return text, ExtractInfo{
+		Status:        "text_extracted",
+		DocumentTitle: "GIFT question bank",
+		Warning:       "ÄÃ£ nháº­n diá»‡n Ä‘á»‹nh dáº¡ng GIFT: Ä‘Ã¡p Ã¡n '=' vÃ  lá»±a chá»n '~' Ä‘Æ°á»£c chuáº©n hÃ³a trÆ°á»›c khi parser local cháº¡y.",
+	}, true
+}
+
+type giftBlock struct {
+	Question string
+	Answers  string
+}
+
+func giftBlocks(source string) []giftBlock {
+	cleaned := stripGiftComments(strings.ReplaceAll(strings.ReplaceAll(source, "\r\n", "\n"), "\r", "\n"))
+	blocks := []giftBlock{}
+	lastEnd := 0
+	for index := 0; index < len(cleaned); index++ {
+		if cleaned[index] != '{' || isEscaped(cleaned, index) {
+			continue
+		}
+		end := matchingBrace(cleaned, index)
+		if end <= index {
+			continue
+		}
+		answerBody := strings.TrimSpace(cleaned[index+1 : end])
+		if !looksLikeGiftAnswerBlock(answerBody) {
+			continue
+		}
+		question := cleanGiftQuestion(cleaned[lastEnd:index])
+		if question != "" {
+			blocks = append(blocks, giftBlock{Question: question, Answers: answerBody})
+		}
+		lastEnd = end + 1
+		index = end
+	}
+	return blocks
+}
+
+func stripGiftComments(source string) string {
+	lines := strings.Split(source, "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	return strings.Join(kept, "\n")
+}
+
+func cleanGiftQuestion(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "::") {
+		if end := strings.Index(value[2:], "::"); end >= 0 {
+			value = strings.TrimSpace(value[end+4:])
+		}
+	}
+	lines := strings.Split(value, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(line), " ")
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(cleaned, " "))
+}
+
+func matchingBrace(source string, start int) int {
+	depth := 0
+	for index := start; index < len(source); index++ {
+		if isEscaped(source, index) {
+			continue
+		}
+		switch source[index] {
+		case '{':
+			depth++
+		case '}':
+			depth--
+			if depth == 0 {
+				return index
+			}
+		}
+	}
+	return -1
+}
+
+func isEscaped(source string, index int) bool {
+	slashes := 0
+	for i := index - 1; i >= 0 && source[i] == '\\'; i-- {
+		slashes++
+	}
+	return slashes%2 == 1
+}
+
+func looksLikeGiftAnswerBlock(value string) bool {
+	trimmed := strings.TrimSpace(strings.ToUpper(value))
+	if trimmed == "T" || trimmed == "TRUE" || trimmed == "F" || trimmed == "FALSE" {
+		return true
+	}
+	for index := 0; index < len(value); index++ {
+		if isEscaped(value, index) {
+			continue
+		}
+		if value[index] == '=' || value[index] == '~' {
+			return true
+		}
+	}
+	return false
+}
+
+func parseGiftChoices(answerBody string) []giftChoice {
+	trimmed := strings.TrimSpace(strings.ToUpper(answerBody))
+	switch trimmed {
+	case "T", "TRUE":
+		return []giftChoice{{Content: "True", Correct: true}, {Content: "False", Correct: false}}
+	case "F", "FALSE":
+		return []giftChoice{{Content: "True", Correct: false}, {Content: "False", Correct: true}}
+	}
+
+	choices := []giftChoice{}
+	currentCorrect := false
+	var current strings.Builder
+	flush := func() {
+		content := cleanGiftChoice(current.String())
+		if content != "" {
+			choices = append(choices, giftChoice{Content: content, Correct: currentCorrect})
+		}
+		current.Reset()
+	}
+	for index := 0; index < len(answerBody); index++ {
+		ch := answerBody[index]
+		if (ch == '=' || ch == '~') && !isEscaped(answerBody, index) {
+			flush()
+			currentCorrect = ch == '='
+			continue
+		}
+		current.WriteByte(ch)
+	}
+	flush()
+	return choices
+}
+
+func cleanGiftChoice(value string) string {
+	value = strings.TrimSpace(value)
+	if strings.HasPrefix(value, "%") {
+		if end := strings.Index(value[1:], "%"); end >= 0 {
+			value = strings.TrimSpace(value[end+2:])
+		}
+	}
+	if cut := strings.Index(value, "#"); cut >= 0 {
+		value = value[:cut]
+	}
+	replacer := strings.NewReplacer(`\=`, "=", `\~`, "~", `\{`, "{", `\}`, "}", `\:`, ":", `\\`, `\`)
+	return strings.Join(strings.Fields(replacer.Replace(strings.TrimSpace(value))), " ")
 }
 
 func sniffFileKind(extension string, data []byte) string {
@@ -264,7 +636,7 @@ func extractLegacyDoc(data []byte, imageCount int) (string, ExtractInfo, []Extra
 	cmd := exec.CommandContext(ctx, converter, "--headless", "--convert-to", "docx", "--outdir", workDir, sourcePath)
 	output, err := cmd.CombinedOutput()
 	if ctx.Err() == context.DeadlineExceeded {
-		return "", needsLegacyDocConversionInfo(imageCount, "LibreOffice convert quá thời gian cho phép"), scanEmbeddedImageAssets(data)
+		return "", needsLegacyDocConversionInfo(imageCount, "LibreOffice convert quÃ¡ thá»i gian cho phÃ©p"), scanEmbeddedImageAssets(data)
 	}
 	if err != nil {
 		return "", needsLegacyDocConversionInfo(imageCount, strings.TrimSpace(string(output))), scanEmbeddedImageAssets(data)
@@ -273,29 +645,30 @@ func extractLegacyDoc(data []byte, imageCount int) (string, ExtractInfo, []Extra
 	convertedPath := filepath.Join(workDir, "source.docx")
 	converted, err := os.ReadFile(convertedPath)
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, "không tìm thấy file DOCX sau khi convert: "+err.Error()), scanEmbeddedImageAssets(data)
+		return "", needsLegacyDocConversionInfo(imageCount, "khÃ´ng tÃ¬m tháº¥y file DOCX sau khi convert: "+err.Error()), scanEmbeddedImageAssets(data)
 	}
 	text, assets, convertedImages, err := extractDocxPackage(converted)
 	if convertedImages > imageCount {
 		imageCount = convertedImages
 	}
 	if err != nil {
-		return "", needsLegacyDocConversionInfo(imageCount, "DOC đã convert nhưng chưa tách được text: "+err.Error()), scanEmbeddedImageAssets(data)
+		return "", needsLegacyDocConversionInfo(imageCount, "DOC Ä‘Ã£ convert nhÆ°ng chÆ°a tÃ¡ch Ä‘Æ°á»£c text: "+err.Error()), scanEmbeddedImageAssets(data)
 	}
-	return text, ExtractInfo{
+	text, extract := normalizeExtractedText("doc", text, ExtractInfo{
 		Status:     "text_extracted",
 		ImageCount: imageCount,
-		Warning:    "DOC cũ đã được convert sang DOCX bằng LibreOffice trước khi tách text.",
-	}, assets
+		Warning:    "DOC cÅ© Ä‘Ã£ Ä‘Æ°á»£c convert sang DOCX báº±ng LibreOffice trÆ°á»›c khi tÃ¡ch text.",
+	})
+	return text, extract, assets
 }
 
 func needsLegacyDocConversionInfo(imageCount int, reason string) ExtractInfo {
-	warning := "File DOC cũ cần được chuyển đổi sang DOCX/TXT bằng LibreOffice hoặc bộ converter server trước khi parser tách câu hỏi."
+	warning := "File DOC cÅ© cáº§n Ä‘Æ°á»£c chuyá»ƒn Ä‘á»•i sang DOCX/TXT báº±ng LibreOffice hoáº·c bá»™ converter server trÆ°á»›c khi parser tÃ¡ch cÃ¢u há»i."
 	if reason != "" {
-		warning += " Lý do: " + limitMessage(reason, 240) + "."
+		warning += " LÃ½ do: " + limitMessage(reason, 240) + "."
 	}
 	if imageCount > 0 {
-		warning += " Server đã nhận diện ảnh nhúng trong file và sẽ cần tách asset riêng."
+		warning += " Server Ä‘Ã£ nháº­n diá»‡n áº£nh nhÃºng trong file vÃ  sáº½ cáº§n tÃ¡ch asset riÃªng."
 	}
 	return ExtractInfo{
 		Status:          "needs_conversion",
@@ -310,7 +683,7 @@ func findOfficeConverter() (string, error) {
 		if _, err := os.Stat(configured); err == nil {
 			return configured, nil
 		}
-		return "", errors.New("SOFFICE_PATH không tồn tại: " + configured)
+		return "", errors.New("SOFFICE_PATH khÃ´ng tá»“n táº¡i: " + configured)
 	}
 
 	for _, name := range []string{"soffice", "soffice.exe", "soffice.com", "libreoffice", "libreoffice.exe"} {
@@ -330,7 +703,7 @@ func findOfficeConverter() (string, error) {
 		}
 	}
 
-	return "", errors.New("chưa tìm thấy LibreOffice/soffice trong PATH hoặc SOFFICE_PATH")
+	return "", errors.New("chÆ°a tÃ¬m tháº¥y LibreOffice/soffice trong PATH hoáº·c SOFFICE_PATH")
 }
 
 func limitMessage(message string, max int) string {
@@ -347,6 +720,309 @@ func cleanText(data []byte) string {
 		return string(bytes.ToValidUTF8(data, []byte(" ")))
 	}
 	return string(data)
+}
+
+func extractCSVQuestions(data []byte) (string, ExtractInfo, error) {
+	source := cleanText(data)
+	reader := csv.NewReader(strings.NewReader(source))
+	reader.FieldsPerRecord = -1
+	reader.TrimLeadingSpace = true
+	reader.ReuseRecord = false
+	if strings.Count(firstNonEmptyLine(source), ";") > strings.Count(firstNonEmptyLine(source), ",") {
+		reader.Comma = ';'
+	}
+	records, err := reader.ReadAll()
+	if err != nil {
+		return "", ExtractInfo{}, err
+	}
+	records = nonEmptyCSVRecords(records)
+	if len(records) == 0 {
+		return "", ExtractInfo{}, errors.New("file khÃ´ng cÃ³ dÃ²ng dá»¯ liá»‡u")
+	}
+
+	header := csvHeaderMap(records[0])
+	start := 0
+	if _, ok := header["question"]; ok {
+		start = 1
+	} else if _, ok := header["content"]; ok {
+		start = 1
+	}
+	hasHeader := start == 1
+
+	var builder strings.Builder
+	count := 0
+	for _, record := range records[start:] {
+		questionText := csvCell(record, header, "question", 0)
+		if questionText == "" {
+			questionText = csvCell(record, header, "content", 0)
+		}
+		if questionText == "" {
+			continue
+		}
+
+		count++
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		order := csvCell(record, header, "order", -1)
+		if order == "" {
+			order = strconv.Itoa(count)
+		}
+		builder.WriteString("Cau ")
+		builder.WriteString(order)
+		builder.WriteString(": ")
+		builder.WriteString(strings.Join(strings.Fields(questionText), " "))
+		builder.WriteByte('\n')
+
+		for optionIndex, label := range []string{"A", "B", "C", "D", "E", "F", "G", "H"} {
+			fallbackIndex := optionIndex + 1
+			if hasHeader {
+				fallbackIndex = -1
+			}
+			content := csvCell(record, header, strings.ToLower(label), fallbackIndex)
+			if content == "" {
+				continue
+			}
+			builder.WriteString(label)
+			builder.WriteString(". ")
+			builder.WriteString(strings.Join(strings.Fields(content), " "))
+			builder.WriteByte('\n')
+		}
+		answerFallback := len(record) - 1
+		if hasHeader {
+			answerFallback = -1
+		}
+		answer := strings.ToUpper(strings.TrimSpace(csvCell(record, header, "answer", answerFallback)))
+		if answer != "" {
+			builder.WriteString("Dap an: ")
+			builder.WriteString(answer)
+			builder.WriteByte('\n')
+		}
+	}
+
+	text := strings.TrimSpace(builder.String())
+	if text == "" {
+		return "", ExtractInfo{}, errors.New("khÃ´ng tÃ¬m tháº¥y cÃ¢u há»i há»£p lá»‡ trong CSV")
+	}
+	return text, ExtractInfo{
+		Status:        "text_extracted",
+		DocumentTitle: "CSV question bank",
+		Warning:       "CSV Ä‘Ã£ Ä‘Æ°á»£c Ä‘á»c theo cá»™t question,A,B,C,D,answer trÆ°á»›c khi cháº¡y parser local.",
+	}, nil
+}
+
+func firstNonEmptyLine(source string) string {
+	for _, line := range strings.Split(source, "\n") {
+		if strings.TrimSpace(line) != "" {
+			return line
+		}
+	}
+	return ""
+}
+
+func nonEmptyCSVRecords(records [][]string) [][]string {
+	cleaned := make([][]string, 0, len(records))
+	for _, record := range records {
+		hasContent := false
+		for _, cell := range record {
+			if strings.TrimSpace(cell) != "" {
+				hasContent = true
+				break
+			}
+		}
+		if hasContent {
+			cleaned = append(cleaned, record)
+		}
+	}
+	return cleaned
+}
+
+func csvHeaderMap(record []string) map[string]int {
+	header := map[string]int{}
+	for index, cell := range record {
+		key := normalizeCSVHeader(cell)
+		if key != "" {
+			header[key] = index
+		}
+	}
+	return header
+}
+
+func normalizeCSVHeader(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	value = strings.ReplaceAll(value, " ", "")
+	value = strings.ReplaceAll(value, "_", "")
+	value = strings.ReplaceAll(value, "-", "")
+	switch value {
+	case "question", "cauhoi", "content", "noidung":
+		if value == "content" || value == "noidung" {
+			return "content"
+		}
+		return "question"
+	case "a", "b", "c", "d", "e", "f", "g", "h":
+		return value
+	case "answer", "dapan", "key", "correct":
+		return "answer"
+	case "order", "stt", "no":
+		return "order"
+	default:
+		return value
+	}
+}
+
+func csvCell(record []string, header map[string]int, key string, fallbackIndex int) string {
+	if index, ok := header[key]; ok && index >= 0 && index < len(record) {
+		return strings.TrimSpace(record[index])
+	}
+	if fallbackIndex >= 0 && fallbackIndex < len(record) {
+		return strings.TrimSpace(record[fallbackIndex])
+	}
+	return ""
+}
+
+type moodleQuiz struct {
+	Questions []moodleQuestion `xml:"question"`
+}
+
+type moodleTextBlock struct {
+	Text string `xml:"text"`
+}
+
+type moodleQuestion struct {
+	Type         string            `xml:"type,attr"`
+	Name         moodleTextBlock   `xml:"name"`
+	QuestionText moodleTextBlock   `xml:"questiontext"`
+	Answers      []moodleAnswer    `xml:"answer"`
+	Tags         []moodleTextBlock `xml:"tags>tag"`
+}
+
+type moodleAnswer struct {
+	Fraction string         `xml:"fraction,attr"`
+	Text     moodleTextNode `xml:"text"`
+}
+
+type moodleTextNode struct {
+	Text string `xml:",chardata"`
+}
+
+func extractMoodleXML(data []byte) (string, ExtractInfo, error) {
+	var quiz moodleQuiz
+	if err := xml.Unmarshal(bytes.TrimSpace(data), &quiz); err != nil {
+		return "", ExtractInfo{}, err
+	}
+	if len(quiz.Questions) == 0 {
+		return "", ExtractInfo{}, errors.New("khÃ´ng tÃ¬m tháº¥y question trong XML Moodle")
+	}
+
+	var builder strings.Builder
+	headings := []string{}
+	accepted := 0
+	for _, question := range quiz.Questions {
+		if question.Type != "" && question.Type != "multichoice" {
+			continue
+		}
+
+		content := moodleHTMLTextToPlain(question.QuestionText.Text)
+		if content == "" {
+			continue
+		}
+
+		accepted++
+		order := accepted
+		if parsedOrder := moodleQuestionOrder(question.Name.Text); parsedOrder > 0 {
+			order = parsedOrder
+		}
+		if len(headings) < 4 {
+			if title := moodleHTMLTextToPlain(question.Name.Text); title != "" {
+				headings = append(headings, title)
+			}
+		}
+
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		builder.WriteString("Cau ")
+		builder.WriteString(strconv.Itoa(order))
+		builder.WriteString(": ")
+		builder.WriteString(content)
+		builder.WriteByte('\n')
+
+		correctLabel := ""
+		optionCount := 0
+		for _, answer := range question.Answers {
+			optionText := moodleHTMLTextToPlain(answer.Text.Text)
+			if optionText == "" {
+				continue
+			}
+			label := string(rune('A' + optionCount))
+			optionCount++
+			builder.WriteString(label)
+			builder.WriteString(". ")
+			builder.WriteString(optionText)
+			builder.WriteByte('\n')
+			if correctLabel == "" && moodleAnswerFraction(answer.Fraction) > 0 {
+				correctLabel = label
+			}
+		}
+		if correctLabel != "" {
+			builder.WriteString("Dap an: ")
+			builder.WriteString(correctLabel)
+			builder.WriteByte('\n')
+		}
+	}
+
+	text := strings.TrimSpace(builder.String())
+	if text == "" {
+		return "", ExtractInfo{}, errors.New("XML Moodle khÃ´ng cÃ³ cÃ¢u multichoice Ä‘á»c Ä‘Æ°á»£c")
+	}
+
+	title := "Moodle XML"
+	if len(headings) > 0 {
+		title = headings[0]
+	}
+	return text, ExtractInfo{
+		Status:            "text_extracted",
+		DocumentTitle:     title,
+		HeadingCandidates: headings,
+		Warning:           "XML Moodle Ä‘Ã£ Ä‘Æ°á»£c Ä‘á»c theo cáº¥u trÃºc question/answer; cÃ´ng thá»©c LaTeX Ä‘Æ°á»£c giá»¯ nguyÃªn Ä‘á»ƒ frontend render.",
+	}, nil
+}
+
+func moodleQuestionOrder(value string) int {
+	matches := moodleQuestionOrderPattern.FindStringSubmatch(moodleHTMLTextToPlain(value))
+	if len(matches) < 2 {
+		return 0
+	}
+	order, _ := strconv.Atoi(matches[1])
+	return order
+}
+
+func moodleAnswerFraction(value string) float64 {
+	fraction, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+	if err != nil {
+		return 0
+	}
+	return fraction
+}
+
+func moodleHTMLTextToPlain(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	value = html.UnescapeString(value)
+	value = htmlBreakPattern.ReplaceAllString(value, "\n")
+	value = htmlTagPattern.ReplaceAllString(value, " ")
+	value = strings.ReplaceAll(value, "\u00a0", " ")
+	lines := strings.Split(value, "\n")
+	cleaned := make([]string, 0, len(lines))
+	for _, line := range lines {
+		line = strings.Join(strings.Fields(line), " ")
+		if line != "" {
+			cleaned = append(cleaned, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(cleaned, " "))
 }
 
 func extractDocx(data []byte) (string, error) {
@@ -484,7 +1160,7 @@ func extractDocxXML(reader io.Reader, relationships map[string]string, mediaByPa
 				orderedAssets = append(orderedAssets, asset)
 			}
 		}
-		paragraph.WriteString(" [Hình ")
+		paragraph.WriteString(" [HÃ¬nh ")
 		paragraph.WriteString(strconv.Itoa(imageCount))
 		paragraph.WriteString("] ")
 	}
@@ -975,12 +1651,17 @@ func parserLines(source string) []string {
 				index++
 			}
 		}
-		lines = append(lines, splitEmbeddedQuestionLine(line)...)
+		for _, questionSegment := range splitEmbeddedQuestionLine(line) {
+			lines = append(lines, splitInlineOptionLine(questionSegment)...)
+		}
 	}
 	return lines
 }
 
 func splitEmbeddedQuestionLine(line string) []string {
+	if segments := splitQuestionMarkerSegments(line); len(segments) > 0 {
+		return segments
+	}
 	if questionLinePattern.MatchString(line) || numberedQuestionPattern.MatchString(line) || looseNumberedQuestionPattern.MatchString(line) {
 		return []string{line}
 	}
@@ -994,6 +1675,66 @@ func splitEmbeddedQuestionLine(line string) []string {
 		return []string{line}
 	}
 	return []string{prefix, suffix}
+}
+
+func splitQuestionMarkerSegments(line string) []string {
+	matches := questionMarkerBoundaryPattern.FindAllStringIndex(line, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	if len(matches) == 1 && matches[0][0] == 0 {
+		return nil
+	}
+
+	segments := make([]string, 0, len(matches)+1)
+	if matches[0][0] > 0 {
+		if prefix := strings.TrimSpace(line[:matches[0][0]]); prefix != "" {
+			segments = append(segments, prefix)
+		}
+	}
+	for index, match := range matches {
+		end := len(line)
+		if index+1 < len(matches) {
+			end = matches[index+1][0]
+		}
+		if segment := strings.TrimSpace(line[match[0]:end]); segment != "" {
+			segments = append(segments, segment)
+		}
+	}
+	if len(segments) <= 1 {
+		return nil
+	}
+	return segments
+}
+
+func splitInlineOptionLine(line string) []string {
+	matches := inlineOptionMarkerPattern.FindAllStringIndex(line, -1)
+	if len(matches) == 0 {
+		return []string{line}
+	}
+	if len(matches) == 1 && matches[0][0] == 0 {
+		return []string{line}
+	}
+
+	segments := make([]string, 0, len(matches)+1)
+	if matches[0][0] > 0 {
+		if prefix := strings.TrimSpace(line[:matches[0][0]]); prefix != "" {
+			segments = append(segments, prefix)
+		}
+	}
+	for index, match := range matches {
+		end := len(line)
+		if index+1 < len(matches) {
+			end = matches[index+1][0]
+		}
+		if segment := strings.TrimSpace(line[match[0]:end]); segment != "" {
+			segments = append(segments, segment)
+		}
+	}
+	if len(segments) == 0 {
+		return []string{line}
+	}
+	return segments
 }
 
 func isImagePlaceholderLine(line string) bool {
@@ -1018,7 +1759,7 @@ func shouldSkipParserLine(line string) bool {
 		return true
 	}
 	lower := strings.ToLower(trimmed)
-	return trimmed == ":" || trimmed == "." || lower == "đoạn văn câu hỏi" || lower == "doan van cau hoi"
+	return trimmed == ":" || trimmed == "." || lower == "Ä‘oáº¡n vÄƒn cÃ¢u há»i" || lower == "doan van cau hoi"
 }
 
 func shouldInferUnlabeledOption(current *draftQuestion, line string) bool {
@@ -1117,7 +1858,7 @@ func collectAnswerPairs(line string, answerMap map[int]string) {
 
 func looksLikeAnswerList(line string) bool {
 	lower := strings.ToLower(line)
-	return strings.Contains(lower, "đáp án") || strings.Contains(lower, "dap an") || strings.Contains(lower, "answer")
+	return strings.Contains(lower, "Ä‘Ã¡p Ã¡n") || strings.Contains(lower, "dap an") || strings.Contains(lower, "answer")
 }
 
 func scoreQuestion(draft draftQuestion) ParsedQuestion {
@@ -1129,22 +1870,22 @@ func scoreQuestion(draft draftQuestion) ParsedQuestion {
 	if utf8.RuneCountInString(content) >= 12 {
 		confidence += 25
 	} else {
-		warnings = append(warnings, "Nội dung câu hỏi quá ngắn hoặc bị tách sai.")
+		warnings = append(warnings, "Ná»™i dung cÃ¢u há»i quÃ¡ ngáº¯n hoáº·c bá»‹ tÃ¡ch sai.")
 	}
 
 	binaryChoice := isBinaryChoiceQuestion(draft.options)
 	if len(draft.options) >= 4 {
 		confidence += 30
 		if len(draft.options) > 4 {
-			warnings = append(warnings, "Có hơn 4 lựa chọn, cần giáo viên xác nhận câu này không bị dính thêm dòng.")
+			warnings = append(warnings, "CÃ³ hÆ¡n 4 lá»±a chá»n, cáº§n giÃ¡o viÃªn xÃ¡c nháº­n cÃ¢u nÃ y khÃ´ng bá»‹ dÃ­nh thÃªm dÃ²ng.")
 		}
 	} else if binaryChoice {
 		confidence += 30
 	} else if len(draft.options) >= 2 {
 		confidence += 18
-		warnings = append(warnings, "Ít hơn 4 lựa chọn, cần kiểm tra.")
+		warnings = append(warnings, "Ãt hÆ¡n 4 lá»±a chá»n, cáº§n kiá»ƒm tra.")
 	} else {
-		warnings = append(warnings, "Không đủ lựa chọn A/B/C/D.")
+		warnings = append(warnings, "KhÃ´ng Ä‘á»§ lá»±a chá»n A/B/C/D.")
 	}
 
 	seen := map[string]bool{}
@@ -1158,7 +1899,7 @@ func scoreQuestion(draft draftQuestion) ParsedQuestion {
 	if !duplicate {
 		confidence += 15
 	} else {
-		warnings = append(warnings, "Có lựa chọn bị trùng ký tự.")
+		warnings = append(warnings, "CÃ³ lá»±a chá»n bá»‹ trÃ¹ng kÃ½ tá»±.")
 	}
 
 	usefulOptions := len(draft.options) > 0
@@ -1171,7 +1912,7 @@ func scoreQuestion(draft draftQuestion) ParsedQuestion {
 	if usefulOptions {
 		confidence += 10
 	} else {
-		warnings = append(warnings, "Có lựa chọn quá ngắn hoặc rỗng.")
+		warnings = append(warnings, "CÃ³ lá»±a chá»n quÃ¡ ngáº¯n hoáº·c rá»—ng.")
 	}
 
 	hasValidAnswer := false
@@ -1179,9 +1920,9 @@ func scoreQuestion(draft draftQuestion) ParsedQuestion {
 		confidence += 20
 		hasValidAnswer = true
 	} else if draft.correctLabel != "" {
-		warnings = append(warnings, "Đáp án "+draft.correctLabel+" không khớp lựa chọn đã tách.")
+		warnings = append(warnings, "ÄÃ¡p Ã¡n "+draft.correctLabel+" khÃ´ng khá»›p lá»±a chá»n Ä‘Ã£ tÃ¡ch.")
 	} else {
-		warnings = append(warnings, "Chưa tìm thấy đáp án đúng.")
+		warnings = append(warnings, "ChÆ°a tÃ¬m tháº¥y Ä‘Ã¡p Ã¡n Ä‘Ãºng.")
 	}
 
 	if !hasValidAnswer && confidence >= 80 {
@@ -1226,7 +1967,7 @@ func applyCrossQuestionWarnings(questions []ParsedQuestion) []ParsedQuestion {
 		} else {
 			questions[index].Status = "fail"
 		}
-		questions[index].Warnings = append(questions[index].Warnings, "Trùng số câu và nội dung với một câu khác. Không tự xoá để tránh mất câu thật; giáo viên cần gộp, đổi số, hoặc xoá bản thừa.")
+		questions[index].Warnings = append(questions[index].Warnings, "TrÃ¹ng sá»‘ cÃ¢u vÃ  ná»™i dung vá»›i má»™t cÃ¢u khÃ¡c. KhÃ´ng tá»± xoÃ¡ Ä‘á»ƒ trÃ¡nh máº¥t cÃ¢u tháº­t; giÃ¡o viÃªn cáº§n gá»™p, Ä‘á»•i sá»‘, hoáº·c xoÃ¡ báº£n thá»«a.")
 	}
 	return questions
 }
@@ -1237,7 +1978,7 @@ func isBinaryChoiceQuestion(options []ParsedOption) bool {
 	}
 	joined := normalizeAnswerText(options[0].Content + " " + options[1].Content)
 	return (strings.Contains(joined, "dung") && strings.Contains(joined, "sai")) ||
-		(strings.Contains(joined, "đúng") && strings.Contains(joined, "sai")) ||
+		(strings.Contains(joined, "Ä‘Ãºng") && strings.Contains(joined, "sai")) ||
 		(strings.Contains(joined, "true") && strings.Contains(joined, "false"))
 }
 

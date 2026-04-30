@@ -1,8 +1,8 @@
 import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { login } from "../../api";
-import { type Role, writeAuth } from "../../storage";
+import { ApiError, getCurrentSession, login } from "../../api";
 import { Brand } from "../../shared/Brand";
+import { type Role, clearAuth, writeAuth } from "../../storage";
 
 const roleCopy: Record<Role, { eyebrow: string; title: string; description: string; placeholder: string; password: string; message: string }> = {
   admin: {
@@ -44,11 +44,34 @@ export function LoginPage({ role }: { role: Role }) {
   const [password, setPassword] = useState("");
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [message, setMessage] = useState(copy.message);
+  const [sessionConflict, setSessionConflict] = useState("");
 
   useEffect(() => {
     sessionStorage.setItem("examhub:lastRole", role);
     setMessage(copy.message);
   }, [copy.message, role]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getCurrentSession()
+      .then((auth) => {
+        if (cancelled) return;
+        writeAuth({
+          account: auth.username,
+          role: auth.role,
+          signedInAt: Date.now(),
+          displayName: auth.displayName,
+        });
+        navigate(dashboardFor(auth.role), { replace: true });
+      })
+      .catch(() => {
+        if (!cancelled) clearAuth();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -58,12 +81,18 @@ export function LoginPage({ role }: { role: Role }) {
     }
     setIsSigningIn(true);
     setMessage("Đang xác thực tài khoản...");
+    setSessionConflict("");
     try {
       const auth = await login({ username: account.trim(), password, role });
       writeAuth({ account: auth.username, role: auth.role, signedInAt: Date.now(), displayName: auth.displayName });
       navigate(dashboardFor(auth.role));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Đăng nhập thất bại.");
+      if (error instanceof ApiError && error.status === 409) {
+        setSessionConflict("Tài khoản này đang có phiên đăng nhập khác. Hãy đăng xuất ở phiên cũ hoặc thử lại sau.");
+        setMessage(copy.message);
+      } else {
+        setMessage(error instanceof Error ? error.message : "Đăng nhập thất bại.");
+      }
     } finally {
       setIsSigningIn(false);
     }
@@ -105,6 +134,19 @@ export function LoginPage({ role }: { role: Role }) {
         </form>
         <Link className="back-link" to="/">Chọn tư cách khác</Link>
       </section>
+
+      {sessionConflict && (
+        <div className="login-modal-backdrop" role="presentation">
+          <section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="sessionConflictTitle">
+            <p className="eyebrow">Phiên đăng nhập</p>
+            <h2 id="sessionConflictTitle">Tài khoản đang được dùng</h2>
+            <p>{sessionConflict}</p>
+            <button className="primary-btn" type="button" onClick={() => setSessionConflict("")}>
+              Đã hiểu
+            </button>
+          </section>
+        </div>
+      )}
     </main>
   );
 }

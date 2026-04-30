@@ -1,0 +1,13 @@
+::Lưu trữ::Thiết bị nào dùng để lưu trữ dữ liệu lâu dài? {
+~RAM
+=Ổ cứng
+~CPU
+~Màn hình
+}
+
+Công thức \(2+2\) bằng bao nhiêu? {
+~3
+=4
+~5
+~6
+}

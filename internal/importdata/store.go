@@ -5,12 +5,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"time"
+
+	"website-exam/internal/storage"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -531,7 +531,7 @@ func ApprovePassedImportItemsToSource(ctx context.Context, db *pgxpool.Pool, bat
 		return result, err
 	}
 	if targetBatchID != batchID {
-		_ = os.RemoveAll(filepath.Join("data", "imports", fmt.Sprintf("%d", batchID)))
+		_ = storage.RemoveImportBatch(batchID)
 	}
 	return result, nil
 }
@@ -562,33 +562,21 @@ func activeQuestionKeysByBatch(ctx context.Context, tx pgx.Tx, batchID int64) (m
 }
 
 func saveOriginalUpload(batchID int64, filename string, content []byte) (string, error) {
-	dir := filepath.Join("data", "imports", fmt.Sprintf("%d", batchID))
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return "", err
-	}
 	safeName := unsafeFilenameChars.ReplaceAllString(filename, "_")
 	if safeName == "" || safeName == "." {
 		safeName = "source-file"
 	}
-	path := filepath.Join(dir, safeName)
-	if err := os.WriteFile(path, content, 0o644); err != nil {
-		return "", err
-	}
-	return filepath.ToSlash(path), nil
+	return storage.SaveImportFile(batchID, safeName, content)
 }
 
 func saveExtractedAssets(ctx context.Context, tx pgx.Tx, batchID int64, assets []ExtractedAsset) error {
-	dir := filepath.Join("data", "imports", fmt.Sprintf("%d", batchID), "assets")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return err
-	}
 	for index, asset := range assets {
 		safeName := unsafeFilenameChars.ReplaceAllString(asset.FileName, "_")
 		if safeName == "" || safeName == "." {
 			safeName = fmt.Sprintf("asset-%03d.bin", index+1)
 		}
-		path := filepath.Join(dir, safeName)
-		if err := os.WriteFile(path, asset.Data, 0o644); err != nil {
+		path, err := storage.SaveImportAsset(batchID, safeName, asset.Data)
+		if err != nil {
 			return err
 		}
 		if _, err := tx.Exec(ctx, `
@@ -600,7 +588,7 @@ func saveExtractedAssets(ctx context.Context, tx pgx.Tx, batchID int64, assets [
 				display_order
 			)
 			VALUES ($1, 'unknown', $2, $3, $4)
-		`, batchID, filepath.ToSlash(path), asset.MimeType, index+1); err != nil {
+		`, batchID, path, asset.MimeType, index+1); err != nil {
 			return err
 		}
 	}

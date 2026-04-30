@@ -1,0 +1,13 @@
+Thiết bị nào dùng để lưu trữ dữ liệu lâu dài?
+A. RAM
+B. Ổ cứng
+C. CPU
+D. Màn hình
+ANSWER: B
+
+Công thức \(2+2\) bằng bao nhiêu?
+A. 3
+B. 4
+C. 5
+D. 6
+ANSWER: B

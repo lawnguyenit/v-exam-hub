@@ -155,6 +155,16 @@ export type LoginResult = {
   displayName: string;
 };
 
+export class ApiError extends Error {
+  status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+  }
+}
+
 export type AttemptState = {
   attemptId: number;
   examId: string;
@@ -368,7 +378,7 @@ export type ExamLiveSnapshot = {
 async function getJSON<T>(path: string): Promise<T> {
   const response = await fetch(path, { cache: "no-store" });
   if (!response.ok) {
-    throw new Error(`Cannot load ${path}`);
+    throw new ApiError(response.status, await response.text());
   }
   return response.json() as Promise<T>;
 }
@@ -412,9 +422,13 @@ export async function login(payload: { username: string; password: string; role:
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw new Error(await response.text());
+    throw new ApiError(response.status, await response.text());
   }
   return response.json() as Promise<LoginResult>;
+}
+
+export function getCurrentSession() {
+  return getJSON<LoginResult>("/api/auth/me");
 }
 
 export async function logout() {

@@ -201,9 +201,10 @@ function QuestionCard({
       <p><RichQuestionText text={question.content || "Chua tach duoc noi dung cau hoi."} assetBatchId={assetBatchId} /></p>
       <div className="parsed-options">
         {question.options.map((option, optionIndex) => (
-          <span className={option.label === question.correctLabel ? "correct" : ""} key={`${question.sourceOrder}-${option.label}-${optionIndex}`}>
-            {option.label}. <RichQuestionText text={option.content} assetBatchId={assetBatchId} />
-          </span>
+          <div className={option.label === question.correctLabel ? "parsed-option correct" : "parsed-option"} key={`${question.sourceOrder}-${option.label}-${optionIndex}`}>
+            <strong className="parsed-option-label">{option.label}.</strong>
+            <RichQuestionText className="parsed-option-content" text={option.content} assetBatchId={assetBatchId} />
+          </div>
         ))}
       </div>
       {(onEdit || onDelete) && (

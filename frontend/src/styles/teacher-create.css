@@ -17,6 +17,16 @@
   font-size: clamp(2.3rem, 4.5vw, 3.1rem);
 }
 
+.create-hero {
+  display: grid;
+  justify-items: center;
+  text-align: center;
+}
+
+.create-hero .lead {
+  margin-inline: auto;
+}
+
 .create-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 420px;
@@ -265,6 +275,24 @@
 .import-guide-panel-head h2 {
   margin: 4px 0 0;
   font-size: 1.7rem;
+}
+
+.import-guide-download {
+  width: fit-content;
+  border: 1px solid rgba(35, 132, 89, 0.45);
+  border-radius: 8px;
+  background: #eef8f2;
+  color: var(--green);
+  padding: 9px 12px;
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.import-guide-download:hover,
+.import-guide-download:focus-visible {
+  border-color: var(--green);
+  background: #f7fcf8;
+  outline: none;
 }
 
 .ghost-btn.compact {
@@ -724,8 +752,8 @@
   background: #fff6f6;
 }
 
-.score-card span,
-.parsed-question-top span {
+.score-card > span,
+.parsed-question-top > span {
   color: var(--muted);
   font-weight: 800;
   font-size: 0.85rem;
@@ -873,19 +901,62 @@
 
 .parsed-options {
   display: grid;
-  gap: 5px;
+  gap: 8px;
+  min-width: 0;
 }
 
-.parsed-options span {
+.parsed-option {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+  min-width: 0;
   border: 1px solid var(--line);
   border-radius: 8px;
-  padding: 7px 9px;
+  background: #ffffff;
+  padding: 10px 12px;
+  overflow-x: auto;
 }
 
-.parsed-options .correct {
+.parsed-option.correct {
   border-color: var(--green);
   background: var(--soft);
+}
+
+.parsed-option-label {
+  color: var(--ink);
   font-weight: 800;
+  line-height: 1.55;
+}
+
+.parsed-option-content {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  line-height: 1.65;
+}
+
+.parsed-option .question-math {
+  display: inline;
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: normal;
+}
+
+.parsed-option .question-math-display {
+  display: block;
+  padding: 6px 0;
+  text-align: left;
+}
+
+.parsed-option .question-math .katex-display {
+  margin: 0;
+  text-align: left;
+}
+
+.parsed-option .question-math .katex {
+  max-width: 100%;
 }
 
 .question-card-actions {
