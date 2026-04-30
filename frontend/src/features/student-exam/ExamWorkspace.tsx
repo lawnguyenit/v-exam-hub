@@ -5,7 +5,7 @@ import { startStudentAttempt, submitStudentAttempt, syncStudentAttemptDraft } fr
 import { formatSeconds } from "../../lib/format";
 import { PageShell } from "../../shared/PageShell";
 import { RichQuestionText } from "../../shared/RichQuestionText";
-import type { AuthSession } from "../../storage";
+import type { AuthSession } from "../../lib/authStorage";
 
 export function ExamWorkspace({ auth, exam }: { auth: AuthSession; exam: Exam }) {
   const navigate = useNavigate();
@@ -409,3 +409,5 @@ export function ExamWorkspace({ auth, exam }: { auth: AuthSession; exam: Exam })
     </PageShell>
   );
 }
+
+

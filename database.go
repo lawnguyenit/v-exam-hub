@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"website-exam/internal/authsession"
 	"website-exam/internal/config"
 )
 
@@ -42,7 +43,7 @@ func connectDB(ctx context.Context, cfg config.Runtime) (*pgxpool.Pool, error) {
 				db.Close()
 				return nil, err
 			}
-			if err := ensureSessionSchema(deadlineCtx, db); err != nil {
+			if err := authsession.EnsureSchema(deadlineCtx, db); err != nil {
 				db.Close()
 				return nil, err
 			}

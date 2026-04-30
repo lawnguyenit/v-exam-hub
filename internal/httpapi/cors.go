@@ -1,11 +1,11 @@
-package main
+package httpapi
 
 import (
 	"net/http"
 	"strings"
 )
 
-func enableRuntimeCORS(next http.Handler, allowedOrigins []string) http.Handler {
+func EnableRuntimeCORS(next http.Handler, allowedOrigins []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if origin := allowedOrigin(r.Header.Get("Origin"), allowedOrigins); origin != "" {
 			w.Header().Set("Access-Control-Allow-Origin", origin)

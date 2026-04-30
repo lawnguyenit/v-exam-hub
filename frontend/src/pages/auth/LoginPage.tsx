@@ -2,7 +2,7 @@ import { type FormEvent, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiError, getCurrentSession, login } from "../../api";
 import { Brand } from "../../shared/Brand";
-import { type Role, clearAuth, writeAuth } from "../../storage";
+import { type Role, clearAuth, writeAuth } from "../../lib/authStorage";
 
 const roleCopy: Record<Role, { eyebrow: string; title: string; description: string; placeholder: string; password: string; message: string }> = {
   admin: {
@@ -150,3 +150,5 @@ export function LoginPage({ role }: { role: Role }) {
     </main>
   );
 }
+
+

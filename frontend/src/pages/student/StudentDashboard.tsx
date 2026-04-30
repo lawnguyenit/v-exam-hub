@@ -3,7 +3,7 @@ import { useState } from "react";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { type StudentDashboard as StudentDashboardData, getStudentDashboard, logout } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
-import { clearAuth } from "../../storage";
+import { clearAuth } from "../../lib/authStorage";
 import { Brand } from "../../shared/Brand";
 
 export function StudentDashboard() {
@@ -190,3 +190,5 @@ function StudentProfile({ active, data, account, initials }: { active: boolean; 
     </section>
   );
 }
+
+

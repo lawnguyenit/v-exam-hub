@@ -1,4 +1,4 @@
-package main
+package authsession
 
 import (
 	"context"
@@ -20,14 +20,14 @@ const (
 	sessionTTL        = 8 * time.Hour
 )
 
-type authSession struct {
+type Session struct {
 	ID       int64
 	UserID   int64
 	Username string
 	Role     string
 }
 
-func ensureSessionSchema(ctx context.Context, db *pgxpool.Pool) error {
+func EnsureSchema(ctx context.Context, db *pgxpool.Pool) error {
 	_, err := db.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS user_sessions (
 			id BIGSERIAL PRIMARY KEY,
@@ -47,15 +47,15 @@ func ensureSessionSchema(ctx context.Context, db *pgxpool.Pool) error {
 	return err
 }
 
-func createLoginSession(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request, username, role string) error {
+func CreateLoginSession(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request, username, role string) error {
 	var userID int64
 	if err := db.QueryRow(ctx, `SELECT id FROM users WHERE username = $1 AND account_status = 'active'`, username).Scan(&userID); err != nil {
 		return fmt.Errorf("khong tim thay tai khoan dang hoat dong")
 	}
 
-	current, _ := sessionFromRequest(ctx, db, r)
+	current, _ := FromRequest(ctx, db, r)
 	if current != nil {
-		_ = revokeSession(ctx, db, current.ID)
+		_ = revoke(ctx, db, current.ID)
 	}
 
 	if _, err := db.Exec(ctx, `
@@ -92,8 +92,8 @@ func createLoginSession(ctx context.Context, db *pgxpool.Pool, w http.ResponseWr
 	return nil
 }
 
-func requireAuth(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request, roles ...string) (*authSession, bool) {
-	session, err := sessionFromRequest(ctx, db, r)
+func Require(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request, roles ...string) (*Session, bool) {
+	session, err := FromRequest(ctx, db, r)
 	if err != nil {
 		http.Error(w, "Phien dang nhap khong hop le hoac da het han", http.StatusUnauthorized)
 		return nil, false
@@ -110,13 +110,13 @@ func requireAuth(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r
 	return nil, false
 }
 
-func sessionFromRequest(ctx context.Context, db *pgxpool.Pool, r *http.Request) (*authSession, error) {
+func FromRequest(ctx context.Context, db *pgxpool.Pool, r *http.Request) (*Session, error) {
 	cookie, err := r.Cookie(sessionCookieName)
 	if err != nil || strings.TrimSpace(cookie.Value) == "" {
 		return nil, fmt.Errorf("missing session cookie")
 	}
 	tokenHash := hashSessionToken(cookie.Value)
-	var session authSession
+	var session Session
 	err = db.QueryRow(ctx, `
 		SELECT us.id, us.user_id, u.username, us.role_code
 		FROM user_sessions us
@@ -133,14 +133,14 @@ func sessionFromRequest(ctx context.Context, db *pgxpool.Pool, r *http.Request) 
 	return &session, nil
 }
 
-func logoutSession(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request) {
+func Logout(ctx context.Context, db *pgxpool.Pool, w http.ResponseWriter, r *http.Request) {
 	if cookie, err := r.Cookie(sessionCookieName); err == nil {
 		_, _ = db.Exec(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE token_hash = $1 AND revoked_at IS NULL`, hashSessionToken(cookie.Value))
 	}
 	clearSessionCookie(w, r)
 }
 
-func revokeSession(ctx context.Context, db *pgxpool.Pool, sessionID int64) error {
+func revoke(ctx context.Context, db *pgxpool.Pool, sessionID int64) error {
 	_, err := db.Exec(ctx, `UPDATE user_sessions SET revoked_at = NOW() WHERE id = $1`, sessionID)
 	return err
 }
@@ -192,7 +192,7 @@ func clientIP(r *http.Request) string {
 	return ""
 }
 
-func ensureStudentAttemptOwner(ctx context.Context, db *pgxpool.Pool, attemptID int64, userID int64) error {
+func EnsureStudentAttemptOwner(ctx context.Context, db *pgxpool.Pool, attemptID int64, userID int64) error {
 	var exists bool
 	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM exam_attempts WHERE id = $1 AND student_user_id = $2)`, attemptID, userID).Scan(&exists)
 	if err != nil {
@@ -204,7 +204,7 @@ func ensureStudentAttemptOwner(ctx context.Context, db *pgxpool.Pool, attemptID 
 	return nil
 }
 
-func teacherOwnsExam(ctx context.Context, db *pgxpool.Pool, examIDText string, userID int64) bool {
+func TeacherOwnsExam(ctx context.Context, db *pgxpool.Pool, examIDText string, userID int64) bool {
 	examID, err := strconvParseInt64(examIDText)
 	if err != nil {
 		return false
@@ -214,7 +214,7 @@ func teacherOwnsExam(ctx context.Context, db *pgxpool.Pool, examIDText string, u
 	return err == nil && exists
 }
 
-func teacherOwnsBatch(ctx context.Context, db *pgxpool.Pool, batchID int64, userID int64) bool {
+func TeacherOwnsBatch(ctx context.Context, db *pgxpool.Pool, batchID int64, userID int64) bool {
 	var exists bool
 	err := db.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM import_batches WHERE id = $1 AND uploaded_by_user_id = $2)`, batchID, userID).Scan(&exists)
 	return err == nil && exists

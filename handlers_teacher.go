@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"website-exam/internal/accountdata"
+	"website-exam/internal/authsession"
+	"website-exam/internal/httpapi"
 	"website-exam/internal/importdata"
 	"website-exam/internal/storage"
 	"website-exam/internal/teacherdata"
@@ -17,7 +19,7 @@ import (
 
 func handleTeacherProfileUpdate(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -36,13 +38,13 @@ func handleTeacherProfileUpdate(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng lÆ°u Ä‘Æ°á»£c há»“ sÆ¡ giÃ¡o viÃªn: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, profile)
+		httpapi.WriteJSON(w, profile)
 	}
 }
 
 func handleTeacherQuestionBank(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -55,13 +57,13 @@ func handleTeacherQuestionBank(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng táº£i Ä‘Æ°á»£c ngÃ¢n hÃ ng cÃ¢u há»i: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, items)
+		httpapi.WriteJSON(w, items)
 	}
 }
 
 func handleTeacherQuestionBankSource(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -80,13 +82,13 @@ func handleTeacherQuestionBankSource(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "Khong xoa duoc bo de cuong: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }
 
 func handleTeacherExamCreate(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -105,7 +107,7 @@ func handleTeacherExamCreate(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng táº¡o Ä‘Æ°á»£c bÃ i kiá»ƒm tra: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }
 
@@ -115,7 +117,7 @@ func handleTeacherImportItemCreate(db *pgxpool.Pool) http.HandlerFunc {
 		Question      importdata.ParsedQuestion `json:"question"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -128,7 +130,7 @@ func handleTeacherImportItemCreate(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "Khong doc duoc du lieu cau hoi", http.StatusBadRequest)
 			return
 		}
-		if !teacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) {
+		if !authsession.TeacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) {
 			http.Error(w, "khong co quyen voi batch import nay", http.StatusForbidden)
 			return
 		}
@@ -137,7 +139,7 @@ func handleTeacherImportItemCreate(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "Khong tao duoc cau hoi: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, question)
+		httpapi.WriteJSON(w, question)
 	}
 }
 
@@ -147,7 +149,7 @@ func handleTeacherImportItemSave(db *pgxpool.Pool) http.HandlerFunc {
 		Question      importdata.ParsedQuestion `json:"question"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -160,7 +162,7 @@ func handleTeacherImportItemSave(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c dá»¯ liá»‡u cÃ¢u há»i", http.StatusBadRequest)
 			return
 		}
-		if !teacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) {
+		if !authsession.TeacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) {
 			http.Error(w, "khong co quyen voi batch import nay", http.StatusForbidden)
 			return
 		}
@@ -168,7 +170,7 @@ func handleTeacherImportItemSave(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng lÆ°u Ä‘Æ°á»£c cÃ¢u há»i: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		httpapi.WriteJSON(w, map[string]any{"ok": true})
 	}
 }
 
@@ -178,7 +180,7 @@ func handleTeacherImportItemDelete(db *pgxpool.Pool) http.HandlerFunc {
 		ImportItemID  int64 `json:"importItemId"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -191,7 +193,7 @@ func handleTeacherImportItemDelete(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c cÃ¢u cáº§n xoÃ¡", http.StatusBadRequest)
 			return
 		}
-		if !teacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) {
+		if !authsession.TeacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) {
 			http.Error(w, "khong co quyen voi batch import nay", http.StatusForbidden)
 			return
 		}
@@ -199,7 +201,7 @@ func handleTeacherImportItemDelete(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng xoÃ¡ Ä‘Æ°á»£c cÃ¢u khá»i batch: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		httpapi.WriteJSON(w, map[string]any{"ok": true})
 	}
 }
 
@@ -209,7 +211,7 @@ func handleTeacherImportApprovePass(db *pgxpool.Pool) http.HandlerFunc {
 		TargetBatchID int64 `json:"targetBatchId"`
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -222,7 +224,7 @@ func handleTeacherImportApprovePass(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c batch import", http.StatusBadRequest)
 			return
 		}
-		if !teacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) || (payload.TargetBatchID > 0 && !teacherOwnsBatch(r.Context(), db, payload.TargetBatchID, auth.UserID)) {
+		if !authsession.TeacherOwnsBatch(r.Context(), db, payload.ImportBatchID, auth.UserID) || (payload.TargetBatchID > 0 && !authsession.TeacherOwnsBatch(r.Context(), db, payload.TargetBatchID, auth.UserID)) {
 			http.Error(w, "khong co quyen voi batch import nay", http.StatusForbidden)
 			return
 		}
@@ -231,13 +233,13 @@ func handleTeacherImportApprovePass(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng lÆ°u Ä‘Æ°á»£c cÃ¢u pass: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }
 
 func handleTeacherClasses(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -250,13 +252,13 @@ func handleTeacherClasses(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng táº£i Ä‘Æ°á»£c danh sÃ¡ch lá»›p: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, classes)
+		httpapi.WriteJSON(w, classes)
 	}
 }
 
 func handleTeacherClassDetail(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -279,7 +281,7 @@ func handleTeacherClassDetail(db *pgxpool.Pool) http.HandlerFunc {
 					http.Error(w, "KhÃ´ng táº£i Ä‘Æ°á»£c chi tiáº¿t lá»›p: "+err.Error(), http.StatusBadRequest)
 					return
 				}
-				writeJSON(w, detail)
+				httpapi.WriteJSON(w, detail)
 			case http.MethodPatch:
 				var payload accountdata.ClassUpdateRequest
 				if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
@@ -291,13 +293,13 @@ func handleTeacherClassDetail(db *pgxpool.Pool) http.HandlerFunc {
 					http.Error(w, "KhÃ´ng sá»­a Ä‘Æ°á»£c lá»›p: "+err.Error(), http.StatusBadRequest)
 					return
 				}
-				writeJSON(w, updated)
+				httpapi.WriteJSON(w, updated)
 			case http.MethodDelete:
 				if err := accountdata.ArchiveClass(r.Context(), db, auth.UserID, classID); err != nil {
 					http.Error(w, "KhÃ´ng xÃ³a Ä‘Æ°á»£c lá»›p: "+err.Error(), http.StatusBadRequest)
 					return
 				}
-				writeJSON(w, map[string]any{"ok": true})
+				httpapi.WriteJSON(w, map[string]any{"ok": true})
 			default:
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			}
@@ -313,7 +315,7 @@ func handleTeacherClassDetail(db *pgxpool.Pool) http.HandlerFunc {
 				http.Error(w, "KhÃ´ng xÃ³a Ä‘Æ°á»£c sinh viÃªn khá»i lá»›p: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			writeJSON(w, map[string]any{"ok": true})
+			httpapi.WriteJSON(w, map[string]any{"ok": true})
 			return
 		}
 		http.NotFound(w, r)
@@ -322,7 +324,7 @@ func handleTeacherClassDetail(db *pgxpool.Pool) http.HandlerFunc {
 
 func handleTeacherClassStudentImport(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -360,7 +362,7 @@ func handleTeacherClassStudentImport(db *pgxpool.Pool) http.HandlerFunc {
 				http.Error(w, "KhÃ´ng táº¡o Ä‘Æ°á»£c tÃ i khoáº£n sinh viÃªn: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			writeJSON(w, result)
+			httpapi.WriteJSON(w, result)
 			return
 		}
 		var payload accountdata.StudentImportRequest
@@ -373,13 +375,13 @@ func handleTeacherClassStudentImport(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng táº¡o Ä‘Æ°á»£c tÃ i khoáº£n sinh viÃªn: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }
 
 func handleTeacherStudentPasswordUpdate(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := requireAuth(r.Context(), db, w, r, "teacher"); !ok {
+		if _, ok := authsession.Require(r.Context(), db, w, r, "teacher"); !ok {
 			return
 		}
 		if r.Method != http.MethodPost {
@@ -395,13 +397,13 @@ func handleTeacherStudentPasswordUpdate(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»•i Ä‘Æ°á»£c máº­t kháº©u: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, map[string]any{"ok": true})
+		httpapi.WriteJSON(w, map[string]any{"ok": true})
 	}
 }
 
 func handleTeacherImportAsset(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := requireAuth(r.Context(), db, w, r); !ok {
+		if _, ok := authsession.Require(r.Context(), db, w, r); !ok {
 			return
 		}
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -451,7 +453,7 @@ func handleTeacherImportAsset(db *pgxpool.Pool) http.HandlerFunc {
 
 func handleTeacherImportParse(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -481,6 +483,6 @@ func handleTeacherImportParse(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng lÆ°u Ä‘Æ°á»£c import vÃ o database: "+err.Error(), http.StatusInternalServerError)
 			return
 		}
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }

@@ -7,7 +7,7 @@ import { TeacherDetail } from "../../features/teacher-statistics/TeacherDetail";
 import { TeacherDetailModal } from "../../features/teacher-statistics/TeacherDetailModal";
 import { useRequiredAuth } from "../../lib/auth";
 import { examTypeClass, statusClass } from "../../lib/format";
-import { clearAuth } from "../../storage";
+import { clearAuth } from "../../lib/authStorage";
 import { Brand } from "../../shared/Brand";
 
 export function TeacherDashboard() {
@@ -311,3 +311,5 @@ function AccessCodeModalContent({ code, durationMinute, expiresAt }: { code: str
     </section>
   );
 }
+
+

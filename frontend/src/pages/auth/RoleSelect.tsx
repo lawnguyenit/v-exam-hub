@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { getCurrentSession } from "../../api";
 import { Brand } from "../../shared/Brand";
-import { clearAuth, writeAuth, type Role } from "../../storage";
+import { clearAuth, writeAuth, type Role } from "../../lib/authStorage";
 
 function dashboardFor(role: Role) {
   if (role === "admin") return "/admin";
@@ -61,3 +61,5 @@ export function RoleSelect() {
     </main>
   );
 }
+
+

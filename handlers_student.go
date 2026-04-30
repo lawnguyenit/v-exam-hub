@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"website-exam/internal/authsession"
+	"website-exam/internal/httpapi"
 	"website-exam/internal/studentdata"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -11,7 +13,7 @@ import (
 
 func handleStudentAttemptStart(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "student")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "student")
 		if !ok {
 			return
 		}
@@ -30,13 +32,13 @@ func handleStudentAttemptStart(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng báº¯t Ä‘áº§u Ä‘Æ°á»£c bÃ i lÃ m: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, state)
+		httpapi.WriteJSON(w, state)
 	}
 }
 
 func handleStudentAttemptSave(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "student")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "student")
 		if !ok {
 			return
 		}
@@ -49,7 +51,7 @@ func handleStudentAttemptSave(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c Ä‘Ã¡p Ã¡n", http.StatusBadRequest)
 			return
 		}
-		if err := ensureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
+		if err := authsession.EnsureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
 			http.Error(w, "khong co quyen voi bai lam nay", http.StatusForbidden)
 			return
 		}
@@ -58,13 +60,13 @@ func handleStudentAttemptSave(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng lÆ°u Ä‘Æ°á»£c Ä‘Ã¡p Ã¡n: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, state)
+		httpapi.WriteJSON(w, state)
 	}
 }
 
 func handleStudentAttemptSync(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "student")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "student")
 		if !ok {
 			return
 		}
@@ -77,7 +79,7 @@ func handleStudentAttemptSync(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c dá»¯ liá»‡u Ä‘á»“ng bá»™", http.StatusBadRequest)
 			return
 		}
-		if err := ensureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
+		if err := authsession.EnsureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
 			http.Error(w, "khong co quyen voi bai lam nay", http.StatusForbidden)
 			return
 		}
@@ -86,13 +88,13 @@ func handleStudentAttemptSync(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»“ng bá»™ Ä‘Æ°á»£c bÃ i lÃ m: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, state)
+		httpapi.WriteJSON(w, state)
 	}
 }
 
 func handleStudentAttemptProgress(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "student")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "student")
 		if !ok {
 			return
 		}
@@ -105,7 +107,7 @@ func handleStudentAttemptProgress(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c tiáº¿n trÃ¬nh", http.StatusBadRequest)
 			return
 		}
-		if err := ensureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
+		if err := authsession.EnsureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
 			http.Error(w, "khong co quyen voi bai lam nay", http.StatusForbidden)
 			return
 		}
@@ -114,13 +116,13 @@ func handleStudentAttemptProgress(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng lÆ°u Ä‘Æ°á»£c tiáº¿n trÃ¬nh: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, state)
+		httpapi.WriteJSON(w, state)
 	}
 }
 
 func handleStudentAttemptSubmit(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "student")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "student")
 		if !ok {
 			return
 		}
@@ -133,7 +135,7 @@ func handleStudentAttemptSubmit(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng Ä‘á»c Ä‘Æ°á»£c dá»¯ liá»‡u ná»™p bÃ i", http.StatusBadRequest)
 			return
 		}
-		if err := ensureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
+		if err := authsession.EnsureStudentAttemptOwner(r.Context(), db, payload.AttemptID, auth.UserID); err != nil {
 			http.Error(w, "khong co quyen voi bai lam nay", http.StatusForbidden)
 			return
 		}
@@ -142,6 +144,6 @@ func handleStudentAttemptSubmit(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "KhÃ´ng ná»™p Ä‘Æ°á»£c bÃ i: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, state)
+		httpapi.WriteJSON(w, state)
 	}
 }

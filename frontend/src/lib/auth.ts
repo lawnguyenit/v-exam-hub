@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { type AuthSession, type Role, readAuth } from "../storage";
+import { type AuthSession, type Role, readAuth } from "./authStorage";
 
 export function useRequiredAuth(role: Role): AuthSession | null {
   const [auth, setAuth] = useState(() => readAuth());

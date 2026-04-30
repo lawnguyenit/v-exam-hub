@@ -24,8 +24,8 @@ It has been split into:
 - `handlers_auth.go`: auth, session bootstrap login/logout/me, admin teacher creation, login limiter
 - `handlers_student.go`: student attempt endpoints
 - `handlers_teacher.go`: teacher profile, dashboard detail, question import, class/student management endpoints
-- `http_helpers.go`: JSON/static response helpers
-- `cors.go`: runtime CORS wrapper
+- `internal/httpapi`: JSON response helpers, static frontend serving, runtime CORS wrapper
+- `internal/authsession`: DB-backed session/cookie guard helpers
 
 This is still package `main` intentionally. It is the safe intermediate step before moving route groups into `internal/httpapi`.
 
@@ -88,6 +88,16 @@ Import source files and extracted assets still use local disk by default, but th
 - override: `IMPORT_STORAGE_DIR`
 
 This prepares the project for S3-backed import/question assets without rewriting parser and handler code again.
+
+### Structure rules
+
+Added `AI_General/v2/project_structure_rules.md` as the placement rule for future files.
+
+Also moved frontend auth storage from `frontend/src/storage.ts` to `frontend/src/lib/authStorage.ts` so root `src` stays reserved for app composition.
+
+Moved frontend API exports from `frontend/src/api.ts` to `frontend/src/api/index.ts`. The old `api.ts` is now only a compatibility facade.
+
+Added `scripts/check_structure.ps1` to catch future helper/config/session/storage files placed back into root folders.
 
 ## Verification
 

@@ -1,8 +1,6 @@
-package main
+package httpapi
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -10,7 +8,7 @@ import (
 	"strings"
 )
 
-func serveFrontend(distDir string) http.HandlerFunc {
+func ServeFrontend(distDir string) http.HandlerFunc {
 	fileServer := http.FileServer(http.Dir(distDir))
 	indexPath := filepath.Join(distDir, "index.html")
 
@@ -35,14 +33,5 @@ func serveFrontend(distDir string) http.HandlerFunc {
 
 		w.Header().Set("Cache-Control", "no-store")
 		http.ServeFile(w, r, indexPath)
-	}
-}
-
-func writeJSON(w http.ResponseWriter, value any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-store")
-	if err := json.NewEncoder(w).Encode(value); err != nil {
-		http.Error(w, "KhÃ´ng thá»ƒ táº£i dá»¯ liá»‡u", http.StatusInternalServerError)
-		log.Println(err)
 	}
 }

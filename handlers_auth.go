@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"website-exam/internal/accountdata"
+	"website-exam/internal/authsession"
+	"website-exam/internal/httpapi"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -41,7 +43,7 @@ func handleAuthLogin(db *pgxpool.Pool, limiter *loginAttemptLimiter) http.Handle
 			http.Error(w, "ÄÄƒng nháº­p tháº¥t báº¡i: "+err.Error(), http.StatusUnauthorized)
 			return
 		}
-		if err := createLoginSession(r.Context(), db, w, r, result.Username, result.Role); err != nil {
+		if err := authsession.CreateLoginSession(r.Context(), db, w, r, result.Username, result.Role); err != nil {
 			status := http.StatusBadRequest
 			if strings.Contains(err.Error(), "dang co phien") {
 				status = http.StatusConflict
@@ -50,7 +52,7 @@ func handleAuthLogin(db *pgxpool.Pool, limiter *loginAttemptLimiter) http.Handle
 			return
 		}
 		limiter.recordSuccess(attemptKey)
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }
 
@@ -60,8 +62,8 @@ func handleAuthLogout(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		logoutSession(r.Context(), db, w, r)
-		writeJSON(w, map[string]any{"ok": true})
+		authsession.Logout(r.Context(), db, w, r)
+		httpapi.WriteJSON(w, map[string]any{"ok": true})
 	}
 }
 
@@ -71,7 +73,7 @@ func handleAuthMe(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		auth, ok := requireAuth(r.Context(), db, w, r)
+		auth, ok := authsession.Require(r.Context(), db, w, r)
 		if !ok {
 			return
 		}
@@ -80,7 +82,7 @@ func handleAuthMe(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "Khong tai duoc phien dang nhap: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, accountdata.LoginResult{
+		httpapi.WriteJSON(w, accountdata.LoginResult{
 			Username:    auth.Username,
 			Role:        auth.Role,
 			DisplayName: displayName,
@@ -165,7 +167,7 @@ func (l *loginAttemptLimiter) recordSuccess(key string) {
 
 func handleAdminTeacherCreate(db *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "admin")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "admin")
 		if !ok {
 			return
 		}
@@ -184,6 +186,6 @@ func handleAdminTeacherCreate(db *pgxpool.Pool) http.HandlerFunc {
 			http.Error(w, "Khong tao duoc tai khoan giao vien: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, result)
+		httpapi.WriteJSON(w, result)
 	}
 }

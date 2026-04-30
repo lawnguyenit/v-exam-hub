@@ -3,7 +3,7 @@ import { Link, Navigate, useNavigate } from "react-router-dom";
 import { createAdminTeacher, logout as logoutSession, type TeacherCreateResult } from "../../api";
 import { useRequiredAuth } from "../../lib/auth";
 import { Brand } from "../../shared/Brand";
-import { clearAuth } from "../../storage";
+import { clearAuth } from "../../lib/authStorage";
 
 const departments = ["Công nghệ thông tin", "Toán", "Kinh tế", "Ngoại ngữ"];
 
@@ -159,3 +159,5 @@ export function AdminTeachers() {
     </div>
   );
 }
+
+

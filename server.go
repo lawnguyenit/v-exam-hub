@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"strings"
 
+	"website-exam/internal/authsession"
 	"website-exam/internal/config"
+	"website-exam/internal/httpapi"
 	"website-exam/internal/studentdata"
 	"website-exam/internal/teacherdata"
 )
@@ -24,7 +26,7 @@ func runServer(ctx context.Context) {
 	loginLimiter := newLoginAttemptLimiter()
 
 	mux.HandleFunc("/api/student/dashboard", func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "student")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "student")
 		if !ok {
 			return
 		}
@@ -33,7 +35,7 @@ func runServer(ctx context.Context) {
 			http.Error(w, "KhÃ´ng táº£i Ä‘Æ°á»£c dashboard sinh viÃªn: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, dashboard)
+		httpapi.WriteJSON(w, dashboard)
 	})
 	mux.HandleFunc("/api/student/attempts/start", handleStudentAttemptStart(db))
 	mux.HandleFunc("/api/student/attempts/save", handleStudentAttemptSave(db))
@@ -45,7 +47,7 @@ func runServer(ctx context.Context) {
 	mux.HandleFunc("/api/auth/logout", handleAuthLogout(db))
 	mux.HandleFunc("/api/admin/teachers", handleAdminTeacherCreate(db))
 	mux.HandleFunc("/api/student/exams/", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := requireAuth(r.Context(), db, w, r, "student"); !ok {
+		if _, ok := authsession.Require(r.Context(), db, w, r, "student"); !ok {
 			return
 		}
 		id := r.URL.Path[len("/api/student/exams/"):]
@@ -58,10 +60,10 @@ func runServer(ctx context.Context) {
 			http.NotFound(w, r)
 			return
 		}
-		writeJSON(w, exam)
+		httpapi.WriteJSON(w, exam)
 	})
 	mux.HandleFunc("/api/student/reviews/", func(w http.ResponseWriter, r *http.Request) {
-		if _, ok := requireAuth(r.Context(), db, w, r, "student"); !ok {
+		if _, ok := authsession.Require(r.Context(), db, w, r, "student"); !ok {
 			return
 		}
 		id := r.URL.Path[len("/api/student/reviews/"):]
@@ -74,10 +76,10 @@ func runServer(ctx context.Context) {
 			http.NotFound(w, r)
 			return
 		}
-		writeJSON(w, review)
+		httpapi.WriteJSON(w, review)
 	})
 	mux.HandleFunc("/api/teacher/dashboard", func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -86,11 +88,11 @@ func runServer(ctx context.Context) {
 			http.Error(w, "KhÃ´ng táº£i Ä‘Æ°á»£c dashboard giÃ¡o viÃªn: "+err.Error(), http.StatusBadRequest)
 			return
 		}
-		writeJSON(w, dashboard)
+		httpapi.WriteJSON(w, dashboard)
 	})
 	mux.HandleFunc("/api/teacher/question-bank/", handleTeacherQuestionBankSource(db))
 	mux.HandleFunc("/api/teacher/exams/", func(w http.ResponseWriter, r *http.Request) {
-		auth, ok := requireAuth(r.Context(), db, w, r, "teacher")
+		auth, ok := authsession.Require(r.Context(), db, w, r, "teacher")
 		if !ok {
 			return
 		}
@@ -100,7 +102,7 @@ func runServer(ctx context.Context) {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			if !teacherOwnsExam(r.Context(), db, examID, auth.UserID) {
+			if !authsession.TeacherOwnsExam(r.Context(), db, examID, auth.UserID) {
 				http.Error(w, "khong co quyen voi bai thi nay", http.StatusForbidden)
 				return
 			}
@@ -109,7 +111,7 @@ func runServer(ctx context.Context) {
 				http.Error(w, "Khong tao duoc ma truy cap: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			writeJSON(w, result)
+			httpapi.WriteJSON(w, result)
 			return
 		}
 		if examID, ok := strings.CutSuffix(id, "/snapshot"); ok {
@@ -117,7 +119,7 @@ func runServer(ctx context.Context) {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			if !teacherOwnsExam(r.Context(), db, examID, auth.UserID) {
+			if !authsession.TeacherOwnsExam(r.Context(), db, examID, auth.UserID) {
 				http.Error(w, "khong co quyen voi bai thi nay", http.StatusForbidden)
 				return
 			}
@@ -126,7 +128,7 @@ func runServer(ctx context.Context) {
 				http.Error(w, "Khong tai duoc snapshot phong thi: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			writeJSON(w, snapshot)
+			httpapi.WriteJSON(w, snapshot)
 			return
 		}
 		if examID, ok := strings.CutSuffix(id, "/export"); ok {
@@ -134,7 +136,7 @@ func runServer(ctx context.Context) {
 				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 				return
 			}
-			if !teacherOwnsExam(r.Context(), db, examID, auth.UserID) {
+			if !authsession.TeacherOwnsExam(r.Context(), db, examID, auth.UserID) {
 				http.Error(w, "khong co quyen voi bai thi nay", http.StatusForbidden)
 				return
 			}
@@ -150,7 +152,7 @@ func runServer(ctx context.Context) {
 			return
 		}
 		if r.Method == http.MethodDelete {
-			if !teacherOwnsExam(r.Context(), db, id, auth.UserID) {
+			if !authsession.TeacherOwnsExam(r.Context(), db, id, auth.UserID) {
 				http.Error(w, "khong co quyen voi bai thi nay", http.StatusForbidden)
 				return
 			}
@@ -158,14 +160,14 @@ func runServer(ctx context.Context) {
 				http.Error(w, "KhÃ´ng xoÃ¡ Ä‘Æ°á»£c bÃ i thi: "+err.Error(), http.StatusBadRequest)
 				return
 			}
-			writeJSON(w, map[string]any{"ok": true})
+			httpapi.WriteJSON(w, map[string]any{"ok": true})
 			return
 		}
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if !teacherOwnsExam(r.Context(), db, id, auth.UserID) {
+		if !authsession.TeacherOwnsExam(r.Context(), db, id, auth.UserID) {
 			http.Error(w, "khong co quyen voi bai thi nay", http.StatusForbidden)
 			return
 		}
@@ -178,7 +180,7 @@ func runServer(ctx context.Context) {
 			http.NotFound(w, r)
 			return
 		}
-		writeJSON(w, exam)
+		httpapi.WriteJSON(w, exam)
 	})
 	mux.HandleFunc("/api/teacher/profile", handleTeacherProfileUpdate(db))
 	mux.HandleFunc("/api/teacher/question-bank", handleTeacherQuestionBank(db))
@@ -194,7 +196,7 @@ func runServer(ctx context.Context) {
 	mux.HandleFunc("/api/teacher/classes/import-students", handleTeacherClassStudentImport(db))
 	mux.HandleFunc("/api/teacher/students/password", handleTeacherStudentPasswordUpdate(db))
 
-	// mux.HandleFunc("/", serveFrontend("frontend/dist"))
+	// mux.HandleFunc("/", httpapi.ServeFrontend("frontend/dist"))
 
 	// log.Println("Server running at http://localhost:8080")
 	// if err := http.ListenAndServe(":8080", mux); err != nil {
@@ -203,7 +205,7 @@ func runServer(ctx context.Context) {
 	// 2. Trong hÃ m main(), sá»­a Ä‘oáº¡n ListenAndServe:
 	log.Printf("Server running at %s", cfg.Address)
 	// Bá»c mux báº±ng hÃ m enableCORS vá»«a táº¡o
-	if err := http.ListenAndServe(cfg.Address, enableRuntimeCORS(mux, cfg.CORSAllowedOrigins)); err != nil {
+	if err := http.ListenAndServe(cfg.Address, httpapi.EnableRuntimeCORS(mux, cfg.CORSAllowedOrigins)); err != nil {
 		log.Fatal(err)
 	}
 }
