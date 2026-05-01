@@ -53,9 +53,22 @@ Domain files go into:
 - `src/features`: feature/business components with state
 - `src/shared`: reusable UI components
 - `src/lib`: browser/client helpers such as auth storage and formatting
+- `src/api`: API types, API client helper, and domain-specific API modules
 - `src/styles`: CSS grouped by screen or feature
 
 Do not place `utils.ts`, `config.ts`, or `storage.ts` directly under `frontend/src`.
+
+API modules must stay split by domain:
+
+- `src/api/authApi.ts`
+- `src/api/studentApi.ts`
+- `src/api/teacherApi.ts`
+- `src/api/importApi.ts`
+- `src/api/adminApi.ts`
+- `src/api/types.ts`
+- `src/api/client.ts`
+
+`src/api.ts` may exist only as a compatibility facade that re-exports `src/api/index.ts`.
 
 ## Import adapters
 

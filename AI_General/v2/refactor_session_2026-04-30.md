@@ -95,7 +95,18 @@ Added `AI_General/v2/project_structure_rules.md` as the placement rule for futur
 
 Also moved frontend auth storage from `frontend/src/storage.ts` to `frontend/src/lib/authStorage.ts` so root `src` stays reserved for app composition.
 
-Moved frontend API exports from `frontend/src/api.ts` to `frontend/src/api/index.ts`. The old `api.ts` is now only a compatibility facade.
+Moved frontend API exports from `frontend/src/api.ts` to domain modules under `frontend/src/api`:
+
+- `types.ts`
+- `client.ts`
+- `authApi.ts`
+- `studentApi.ts`
+- `teacherApi.ts`
+- `importApi.ts`
+- `adminApi.ts`
+- `index.ts`
+
+The old `api.ts` is now only a compatibility facade.
 
 Added `scripts/check_structure.ps1` to catch future helper/config/session/storage files placed back into root folders.
 
